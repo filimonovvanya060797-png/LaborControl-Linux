@@ -1,5 +1,10 @@
 package main
 
+import _ "embed"
+
+//go:embed r11_original.html
+var r11OriginalHTML []byte
+
 const r11WindowsImportPanel = `<details id="r11-windows-import" class="panel" style="margin-bottom:14px">
 <summary style="cursor:pointer;font-weight:700">Перенос базы из Windows R11</summary>
 <div class="info-note" style="margin-top:12px">Импортируйте полный JSON-ответ Windows R11 из <code>/api/state</code>. Файл схемы <code>LaborControl_R11_schema.json</code> для этого не подходит. Импорт заменяет текущее локальное состояние; перед заменой существующей базы автоматически создаётся резервная копия. Файл остаётся на этом компьютере.</div>
