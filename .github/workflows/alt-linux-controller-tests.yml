@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - feature/r11-core-recovery-20261120
+      - feature/r11-linux-core-restore-20261120
     paths:
       - 'port/controller/**'
       - '.github/workflows/alt-linux-controller-tests.yml'
