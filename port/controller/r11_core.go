@@ -750,38 +750,79 @@ func (h *controller) r11VersionRestore(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *controller) r11ScheduleChange(w http.ResponseWriter, r *http.Request) {
-	h.r11Mutate(w,r,"Изменение вида графика зафиксировано",func(root map[string]json.RawMessage)(map[string]any,string,error){
-		body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err}
-		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err};emp,_:=r11FindEmployee(employees,r11String(body,"tab_no"));if emp==nil{return nil,"",fmt.Errorf("сотрудник не найден")}
-		date,newSchedule:=r11String(body,"effective_date"),r11String(body,"new_schedule");if !r11DateOK(date)||newSchedule==""{return nil,"",fmt.Errorf("укажите дату и новый вид графика")}
-		rows,err:=r11Array(root,"schedule_changes");if err!=nil{return nil,"",err}
-		old:=r11String(emp,"schedule_type")
-		item:=map[string]json.RawMessage{};r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"effective_date",date);r11Put(item,"old_schedule",old);r11Put(item,"new_schedule",newSchedule);r11Put(item,"hours_before",0);r11Put(item,"reason",r11String(body,"reason"));r11Put(item,"created_at",time.Now().Format(time.RFC3339))
-		rows=append(rows,item);r11SetArray(root,"schedule_changes",rows)
-		return map[string]any{"id":r11Int(item,"id")},fmt.Sprintf("%s · %s → %s · %s",r11String(emp,"tab_no"),old,newSchedule,date),nil
+	h.r11Mutate(w, r, "Изменение вида графика зафиксировано", func(root map[string]json.RawMessage) (map[string]any, string, error) {
+		body, err := r11BodyMap(w, r, 2<<20); if err != nil { return nil, "", err }
+		employees, err := r11Array(root, "employees"); if err != nil { return nil, "", err }
+		emp, _ := r11FindEmployee(employees, r11String(body, "tab_no")); if emp == nil { return nil, "", fmt.Errorf("сотрудник не найден") }
+		date, newSchedule := r11String(body, "effective_date"), r11String(body, "new_schedule")
+		if !r11DateOK(date) || newSchedule == "" { return nil, "", fmt.Errorf("укажите дату и новый вид графика") }
+		old := r11String(emp, "schedule_type")
+		if old == newSchedule {
+			revisions, e := r11Array(root, "graph_revisions")
+			if e == nil {
+				for _, rev := range revisions { if r11Int(rev, "employee_id") == r11Int(emp, "id") && strings.EqualFold(r11String(rev, "status"), "ACTIVE") && r11String(rev, "schedule_type") != "" { old = r11String(rev, "schedule_type"); break } }
+			}
+		}
+		days, err := r11Array(root, "days"); if err != nil { return nil, "", err }
+		monthStart := date[:7] + "-01"; hoursBefore := 0.0
+		for _, d := range days { dayDate := r11String(d, "date"); if r11Int(d, "employee_id") == r11Int(emp, "id") && dayDate >= monthStart && dayDate < date { hoursBefore += r11Float(d, "plan_hours") } }
+		rows, err := r11Array(root, "schedule_changes"); if err != nil { return nil, "", err }
+		item := map[string]json.RawMessage{}
+		r11Put(item, "id", r11NextID(root)); r11Put(item, "employee_id", r11Int(emp, "id"))
+		r11Put(item, "effective_date", date); r11Put(item, "old_schedule", old); r11Put(item, "new_schedule", newSchedule)
+		r11Put(item, "hours_before", hoursBefore); r11Put(item, "reason", r11String(body, "reason")); r11Put(item, "created_at", time.Now().Format(time.RFC3339))
+		rows = append(rows, item); r11SetArray(root, "schedule_changes", rows)
+		r11Put(emp, "schedule_type", newSchedule); r11Put(emp, "updated_at", time.Now().Format(time.RFC3339)); r11SetArray(root, "employees", employees)
+		return map[string]any{"id": r11Int(item, "id"), "hours_before": hoursBefore}, fmt.Sprintf("%s · %s → %s · %s", r11String(emp, "tab_no"), old, newSchedule, date), nil
 	})
-}
-
-func (h *controller) r11RevisionCreate(w http.ResponseWriter, r *http.Request) {
-	h.r11Mutate(w,r,"Официальная редакция графика создана",func(root map[string]json.RawMessage)(map[string]any,string,error){
-		body,err:=r11BodyMap(w,r,4<<20);if err!=nil{return nil,"",err}
-		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err};emp,_:=r11FindEmployee(employees,r11String(body,"tab_no"));if emp==nil{return nil,"",fmt.Errorf("сотрудник не найден")}
-		effective:=r11String(body,"effective_date");if !r11DateOK(effective){return nil,"",fmt.Errorf("неверная дата начала редакции")}
-		rows,err:=r11Array(root,"graph_revisions");if err!=nil{return nil,"",err}
-		maxNo:=int64(0);parent:=int64(0);hasActive:=false
-		for _,x:=range rows{if r11Int(x,"employee_id")!=r11Int(emp,"id"){continue};if r11Int(x,"number")>maxNo{maxNo=r11Int(x,"number")};if strings.EqualFold(r11String(x,"status"),"ACTIVE"){hasActive=true;parent=r11Int(x,"id")}}
-		days,err:=r11Array(root,"days");if err!=nil{return nil,"",err};events,err:=r11Array(root,"events");if err!=nil{return nil,"",err};notes,err:=r11Array(root,"notes");if err!=nil{return nil,"",err};colors,err:=r11Array(root,"manual_colors");if err!=nil{return nil,"",err}
-		filter:=func(src []map[string]json.RawMessage)[]map[string]json.RawMessage{out:=[]map[string]json.RawMessage{};for _,x:=range src{if r11Int(x,"employee_id")==r11Int(emp,"id"){out=append(out,x)}};return out}
-		item:=map[string]json.RawMessage{};r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"number",maxNo+1);r11Put(item,"effective_date",effective);r11Put(item,"control_date",r11String(body,"control_date"));r11Put(item,"fixed_hours",r11Float(body,"fixed_hours"));r11Put(item,"schedule_type",r11String(body,"schedule_type"));r11Put(item,"reason",r11String(body,"reason"));r11Put(item,"label",r11String(body,"label"));r11Put(item,"parent_id",parent)
-		status:="DRAFT";if !hasActive{status="ACTIVE";r11Put(item,"activated_at",time.Now().Format(time.RFC3339))}
-		r11Put(item,"status",status);now:=time.Now().Format(time.RFC3339);r11Put(item,"created_at",now);r11Put(item,"updated_at",now)
-		r11Put(item,"days_snapshot",filter(days));r11Put(item,"events_snapshot",filter(events));r11Put(item,"notes_snapshot",filter(notes));r11Put(item,"colors_snapshot",filter(colors))
-		rows=append(rows,item);r11SetArray(root,"graph_revisions",rows)
-		return map[string]any{"id":r11Int(item,"id"),"number":maxNo+1,"status":status},fmt.Sprintf("%s · редакция №%d · %s",r11String(emp,"tab_no"),maxNo+1,effective),nil
+}func (h *controller) r11RevisionCreate(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w, r, "Официальная редакция графика создана", func(root map[string]json.RawMessage) (map[string]any, string, error) {
+		body, err := r11BodyMap(w, r, 4<<20)
+		if err != nil { return nil, "", err }
+		employees, err := r11Array(root, "employees"); if err != nil { return nil, "", err }
+		emp, _ := r11FindEmployee(employees, r11String(body, "tab_no")); if emp == nil { return nil, "", fmt.Errorf("сотрудник не найден") }
+		effective := r11String(body, "effective_date"); if !r11DateOK(effective) { return nil, "", fmt.Errorf("неверная дата начала редакции") }
+		rows, err := r11Array(root, "graph_revisions"); if err != nil { return nil, "", err }
+		days, err := r11Array(root, "days"); if err != nil { return nil, "", err }
+		events, err := r11Array(root, "events"); if err != nil { return nil, "", err }
+		notes, err := r11Array(root, "notes"); if err != nil { return nil, "", err }
+		colors, err := r11Array(root, "manual_colors"); if err != nil { return nil, "", err }
+		employeeID := r11Int(emp, "id")
+		filter := func(src []map[string]json.RawMessage) []map[string]json.RawMessage {
+			out := []map[string]json.RawMessage{}
+			for _, x := range src { if r11Int(x, "employee_id") == employeeID { out = append(out, x) } }
+			return out
+		}
+		maxNo, parent := int64(0), int64(0)
+		for _, old := range rows {
+			if r11Int(old, "employee_id") != employeeID { continue }
+			if n := r11Int(old, "number"); n > maxNo { maxNo = n }
+			if strings.EqualFold(r11String(old, "status"), "ACTIVE") {
+				parent = r11Int(old, "id")
+				r11Put(old, "days_snapshot", filter(days))
+				r11Put(old, "events_snapshot", filter(events))
+				r11Put(old, "notes_snapshot", filter(notes))
+				r11Put(old, "colors_snapshot", filter(colors))
+				r11Put(old, "status", "ARCHIVED")
+				r11Put(old, "updated_at", time.Now().Format(time.RFC3339))
+			}
+		}
+		item := map[string]json.RawMessage{}
+		r11Put(item, "id", r11NextID(root)); r11Put(item, "employee_id", employeeID)
+		r11Put(item, "number", maxNo+1); r11Put(item, "effective_date", effective)
+		r11Put(item, "control_date", r11String(body, "control_date"))
+		r11Put(item, "fixed_hours", r11Float(body, "fixed_hours"))
+		r11Put(item, "schedule_type", r11String(body, "schedule_type"))
+		r11Put(item, "reason", r11String(body, "reason")); r11Put(item, "label", r11String(body, "label"))
+		r11Put(item, "parent_id", parent); r11Put(item, "status", "ACTIVE")
+		now := time.Now().Format(time.RFC3339)
+		r11Put(item, "activated_at", now); r11Put(item, "created_at", now); r11Put(item, "updated_at", now)
+		r11Put(item, "days_snapshot", filter(days)); r11Put(item, "events_snapshot", filter(events))
+		r11Put(item, "notes_snapshot", filter(notes)); r11Put(item, "colors_snapshot", filter(colors))
+		rows = append(rows, item); r11SetArray(root, "graph_revisions", rows)
+		return map[string]any{"id": r11Int(item, "id"), "number": maxNo+1, "status": "ACTIVE"}, fmt.Sprintf("%s · редакция №%d · %s", r11String(emp, "tab_no"), maxNo+1, effective), nil
 	})
-}
-
-func (h *controller) r11RevisionGet(w http.ResponseWriter, r *http.Request) {
+}func (h *controller) r11RevisionGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method!=http.MethodGet{http.Error(w,"GET only",405);return}
 	id,err:=strconv.ParseInt(r.URL.Query().Get("id"),10,64);if err!=nil||id<1{http.Error(w,"неверный id редакции",400);return}
 	h.opMu.Lock();root,e:=h.r11LoadRootLocked();h.opMu.Unlock();if e!=nil{http.Error(w,e.Error(),500);return}
@@ -831,21 +872,36 @@ func (h *controller) r11NoteReminderDelete(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *controller) r11NoteSplit(w http.ResponseWriter, r *http.Request) {
-	h.r11Mutate(w,r,"Диапазон примечания разделён",func(root map[string]json.RawMessage)(map[string]any,string,error){
-		body,err:=r11BodyMap(w,r,1<<20);if err!=nil{return nil,"",err};rows,err:=r11Array(root,"notes");if err!=nil{return nil,"",err}
-		id,date:=r11Int(body,"id"),r11String(body,"date");if !r11DateOK(date){return nil,"",fmt.Errorf("неверная дата")}
-		item,_:=r11FindRecordID(rows,id);if item==nil{return nil,"",fmt.Errorf("примечание не найдено")}
-		a,b:=r11String(item,"date_from"),r11String(item,"date_to");if date<a||date>b{return nil,"",fmt.Errorf("дата вне диапазона примечания")}
-		if a==b{return nil,"",fmt.Errorf("нельзя разделить однодневное примечание")}
-		if date==a{next:=r11DateAdd(date,1);r11Put(item,"date_from",next)}else if date==b{prev:=r11DateAdd(date,-1);r11Put(item,"date_to",prev)}else{
-			right:=map[string]json.RawMessage{};for k,v:=range item{right[k]=append(json.RawMessage(nil),v...)}
-			r11Put(item,"date_to",r11DateAdd(date,-1));r11Put(right,"id",r11NextID(root));r11Put(right,"date_from",r11DateAdd(date,1));r11Put(right,"created_at",time.Now().Format(time.RFC3339));rows=append(rows,right)
+	h.r11Mutate(w, r, "Диапазон примечания разделён", func(root map[string]json.RawMessage) (map[string]any, string, error) {
+		body, err := r11BodyMap(w, r, 1<<20); if err != nil { return nil, "", err }
+		rows, err := r11Array(root, "notes"); if err != nil { return nil, "", err }
+		id, date := r11Int(body, "id"), r11String(body, "date")
+		if !r11DateOK(date) { return nil, "", fmt.Errorf("неверная дата") }
+		item, _ := r11FindRecordID(rows, id); if item == nil { return nil, "", fmt.Errorf("примечание не найдено") }
+		a, b := r11String(item, "date_from"), r11String(item, "date_to")
+		if date < a || date > b { return nil, "", fmt.Errorf("дата вне диапазона примечания") }
+		if a == b { return nil, "", fmt.Errorf("нельзя разделить однодневное примечание") }
+		standalone := map[string]json.RawMessage{}
+		for k, v := range item { standalone[k] = append(json.RawMessage(nil), v...) }
+		r11Put(standalone, "id", r11NextID(root)); r11Put(standalone, "date_from", date); r11Put(standalone, "date_to", date)
+		r11Put(standalone, "created_at", time.Now().Format(time.RFC3339)); r11Put(standalone, "updated_at", time.Now().Format(time.RFC3339))
+		if date == a {
+			r11Put(item, "date_from", r11DateAdd(date, 1))
+		} else if date == b {
+			r11Put(item, "date_to", r11DateAdd(date, -1))
+		} else {
+			right := map[string]json.RawMessage{}
+			for k, v := range item { right[k] = append(json.RawMessage(nil), v...) }
+			r11Put(item, "date_to", r11DateAdd(date, -1))
+			r11Put(right, "id", r11NextID(root)); r11Put(right, "date_from", r11DateAdd(date, 1))
+			r11Put(right, "created_at", time.Now().Format(time.RFC3339)); r11Put(right, "updated_at", time.Now().Format(time.RFC3339))
+			rows = append(rows, right)
 		}
-		r11SetArray(root,"notes",rows);return map[string]any{"id":id},fmt.Sprintf("ID %d · %s",id,date),nil
+		r11Put(item, "updated_at", time.Now().Format(time.RFC3339))
+		rows = append(rows, standalone); r11SetArray(root, "notes", rows)
+		return map[string]any{"id": id, "standalone_id": r11Int(standalone, "id")}, fmt.Sprintf("ID %d · %s", id, date), nil
 	})
-}
-
-func r11DateAdd(date string, n int) string {
+}func r11DateAdd(date string, n int) string {
 	d,e:=time.Parse("2006-01-02",date);if e!=nil{return date};return d.AddDate(0,0,n).Format("2006-01-02")
 }
 
