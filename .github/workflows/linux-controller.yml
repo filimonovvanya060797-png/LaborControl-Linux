@@ -1,0 +1,34 @@
+name: Linux controller bootstrap
+on:
+  push:
+    paths:
+      - 'port/controller/**'
+      - '.github/workflows/linux-controller.yml'
+  pull_request:
+    paths:
+      - 'port/controller/**'
+      - '.github/workflows/linux-controller.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  go-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: port/controller/go.mod
+          cache: false
+      - name: Compile and run Go unit tests (no C compiler required)
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+        run: go test ./...
+      - name: Build Linux controller (Core not included)
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+        run: go build -o /tmp/laborcontrol-controller .
