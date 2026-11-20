@@ -78,3 +78,45 @@ func TestGetRejectsInvalidMonth(t *testing.T) {
 	a.handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/roster?month=2026-13&column=1&page=1", nil))
 	if w.Code != 400 { t.Fatal(w.Code, w.Body.String()) }
 }
+
+
+// TestEditEightPersistsAfterRefreshAndRestart reproduces the requested
+// "enter 8, refresh, restart" scenario against isolated test data.
+// It tests HTTP API behaviour, not a real graphical browser.
+func TestEditEightPersistsAfterRefreshAndRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "demo-schedule-overrides.json")
+	a, err := newApp(path)
+	if err != nil { t.Fatal(err) }
+	handler := a.handler()
+	url := "/api/roster?month=2026-11&column=1&page=1&q=D0011"
+	getValue := func(h http.Handler) string {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
+		if w.Code != http.StatusOK { t.Fatalf("GET failed: %d %s", w.Code, w.Body.String()) }
+		var result struct { Employees []employee `json:"employees"` }
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil { t.Fatal(err) }
+		if len(result.Employees) != 1 { t.Fatalf("expected one employee, got %d", len(result.Employees)) }
+		return result.Employees[0].Days["2026-11-20"]
+	}
+	if got := getValue(handler); got != "" { t.Fatalf("expected empty demo cell, got %q", got) }
+	edit := `{"tab_no":"D0011","date":"2026-11-20","plan":"8"}`
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/plan", strings.NewReader(edit)))
+	if w.Code != http.StatusOK { t.Fatalf("POST failed: %d %s", w.Code, w.Body.String()) }
+	// Second GET represents refreshing the page.
+	if got := getValue(handler); got != "8" { t.Fatalf("refresh lost the value: %q", got) }
+	restarted, err := newApp(path)
+	if err != nil { t.Fatal(err) }
+	if got := getValue(restarted.handler()); got != "8" { t.Fatalf("restart lost the value: %q", got) }
+}
+
+func TestRootPageServed(t *testing.T) {
+	a, err := newApp(filepath.Join(t.TempDir(), "demo.json"))
+	if err != nil { t.Fatal(err) }
+	w := httptest.NewRecorder()
+	a.handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "LaborControl") {
+		t.Fatalf("web page not served: %d", w.Code)
+	}
+}
