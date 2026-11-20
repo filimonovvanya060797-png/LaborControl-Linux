@@ -4,6 +4,12 @@ name: ALT Linux — Go tests and build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/r11-core-recovery-20261120
+    paths:
+      - 'port/controller/**'
+      - '.github/workflows/alt-linux-controller-tests.yml'
 
 permissions:
   contents: read
