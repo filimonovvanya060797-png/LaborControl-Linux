@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/csv"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -114,4 +115,31 @@ func r11NormalizeHeader(value string) string {
 	var b strings.Builder
 	for _,r:=range s{if r>='a'&&r<='z'||r>='а'&&r<='я'||r>='0'&&r<='9'{b.WriteRune(r)}}
 	return b.String()
+}
+
+func r11ReadCSV(data []byte) ([][]string,error) {
+	data=bytes.TrimPrefix(data,[]byte{0xef,0xbb,0xbf})
+	first:=string(data)
+	comma:=','
+	if strings.Count(strings.SplitN(first,"\n",2)[0],";")>strings.Count(strings.SplitN(first,"\n",2)[0],","){comma=';'}
+	reader:=csv.NewReader(bytes.NewReader(data))
+	reader.Comma=comma
+	reader.FieldsPerRecord=-1
+	reader.LazyQuotes=true
+	return reader.ReadAll()
+}
+
+func r11ReadImportTable(data []byte, filename string) ([][]string,string,error) {
+	if strings.EqualFold(filepathExt(filename),".xlsx") || strings.EqualFold(filepathExt(filename),".xlsm") {
+		rows,sheet,err:=r11ReadXLSX(data)
+		return rows,sheet,err
+	}
+	rows,err:=r11ReadCSV(data)
+	return rows,"CSV",err
+}
+
+func filepathExt(name string) string {
+	i:=strings.LastIndex(name,".")
+	if i<0{return ""}
+	return name[i:]
 }
