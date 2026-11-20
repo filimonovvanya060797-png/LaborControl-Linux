@@ -920,12 +920,105 @@ func (h *controller) r11CSVImport(w http.ResponseWriter, r *http.Request, events
 	writeJSON(w,map[string]any{"ok":true,"count":applied,"applied":applied,"rows":len(rows)-1,"backup":r11BackupLabel(backup)})
 }
 
-// The following handlers are deliberately explicit stubs until their full
-// import and compatibility rules have been ported and covered by fixtures.
-// They return a clear error instead of silently accepting incomplete data.
-func (h *controller) r11FlightImportPreview(w http.ResponseWriter, r *http.Request) { http.Error(w,"Импорт общих полётов Excel ещё не перенесён; используйте ручной ввод дат.",http.StatusNotImplemented) }
-func (h *controller) r11FlightImportConfirm(w http.ResponseWriter, r *http.Request) { http.Error(w,"Подтверждение импорта общих полётов ещё не перенесено.",http.StatusNotImplemented) }
-func (h *controller) r11EmployeeFlightImportConfirm(w http.ResponseWriter, r *http.Request) { http.Error(w,"Импорт индивидуальных полётов ещё не перенесён.",http.StatusNotImplemented) }
-func (h *controller) r11EmployeeFlightDelete(w http.ResponseWriter, r *http.Request) { http.Error(w,"Удаление индивидуального полёта ещё не перенесено.",http.StatusNotImplemented) }
-func (h *controller) r11Demo(w http.ResponseWriter, r *http.Request) { http.Error(w,"Демо-генератор ещё не перенесён.",http.StatusNotImplemented) }
-func (h *controller) r11DemoAutograf(w http.ResponseWriter, r *http.Request) { http.Error(w,"Демо-генератор АвтоГрафа ещё не перенесён.",http.StatusNotImplemented) }
+func r11HeaderIndex(headers []string, aliases ...string) int {
+	wanted:=map[string]bool{}
+	for _,a:=range aliases{wanted[r11NormalizeHeader(a)]=true}
+	for i,h:=range headers{if wanted[r11NormalizeHeader(h)]{return i}}
+	for i,h:=range headers{n:=r11NormalizeHeader(h);for a:=range wanted{if a!=""&&strings.Contains(n,a){return i}}}
+	return -1
+}
+
+func r11Cell(row []string, index int) string {
+	if index<0||index>=len(row){return ""}
+	return strings.TrimSpace(row[index])
+}
+
+func (h *controller) r11FlightImportPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method!=http.MethodPost{http.Error(w,"POST only",405);return}
+	if err:=r.ParseMultipartForm(64<<20);err!=nil{http.Error(w,err.Error(),400);return}
+	file,header,err:=r.FormFile("file");if err!=nil{http.Error(w,err.Error(),400);return};defer file.Close()
+	raw,err:=io.ReadAll(io.LimitReader(file,64<<20));if err!=nil{http.Error(w,err.Error(),400);return}
+	table,sheet,err:=r11ReadImportTable(raw,header.Filename);if err!=nil{http.Error(w,err.Error(),400);return}
+	table=filterNonEmptyRows(table);if len(table)<2{http.Error(w,"В файле нет строк с датами полётов",400);return}
+	headerRow:=-1;pointCol,dateCol:=-1,-1
+	for i:=0;i<len(table)&&i<6;i++{p:=r11HeaderIndex(table[i],"пункт сбора","пункт сбора вылета","пункт","город","collection point","collection_point");d:=r11HeaderIndex(table[i],"дата дп","дата полёта","дата полета","дата","date");if p>=0&&d>=0{headerRow=i;pointCol=p;dateCol=d;break}}
+	if headerRow<0{http.Error(w,"Не найдены колонки «Пункт сбора» и «Дата ДП»",400);return}
+	headers:=table[headerRow];sourceCol:=r11HeaderIndex(headers,"источник","source");noteCol:=r11HeaderIndex(headers,"примечание","комментарий","note")
+	year,_:=strconv.Atoi(r.FormValue("year"))
+	h.opMu.Lock();root,loadErr:=h.r11LoadRootLocked();h.opMu.Unlock();if loadErr!=nil{http.Error(w,loadErr.Error(),500);return}
+	existing,loadErr:=r11Array(root,"flight_dates");if loadErr!=nil{http.Error(w,loadErr.Error(),500);return}
+	existingSet:=map[string]bool{};for _,x:=range existing{existingSet[r11String(x,"collection_point")+"|"+r11String(x,"date")]=true}
+	seen:=map[string]bool{};yearsSet:=map[int]bool{};rows:=[]map[string]any{};counts:=map[string]int{"new":0,"existing":0,"duplicate_file":0,"other_year":0,"error":0}
+	for i:=headerRow+1;i<len(table);i++{row:=table[i];if len(row)==0{continue};point:=r11Cell(row,pointCol);date:=r11NormalizeDate(r11Cell(row,dateCol));source:=r11Cell(row,sourceCol);if source==""{source="Импорт Excel"};note:=r11Cell(row,noteCol)
+		entry:=map[string]any{"row":i+1,"collection_point":point,"date":date,"source":source,"note":note,"status":"new","selectable":true,"default_selected":true,"message":""};status:="new"
+		switch{case point==""||date=="":status="error";entry["selectable"]=false;entry["default_selected"]=false;entry["message"]="Не заполнен пункт сбора или дата"
+		case year>0&&strings.HasPrefix(date,fmt.Sprintf("%04d-",year))==false:status="other_year";entry["selectable"]=false;entry["default_selected"]=false;entry["message"]="Дата не относится к выбранному году"
+		case seen[point+"|"+date]:status="duplicate_file";entry["selectable"]=false;entry["default_selected"]=false;entry["message"]="Такая дата повторяется в файле"
+		case existingSet[point+"|"+date]:status="existing";entry["selectable"]=false;entry["default_selected"]=false;entry["message"]="Дата уже есть в базе"}
+		if status=="new"{seen[point+"|"+date]=true};if date!=""{if d,e:=time.Parse("2006-01-02",date);e==nil{yearsSet[d.Year()]=true}}
+		entry["status"]=status;counts[status]++;rows=append(rows,entry)
+	}
+	years:=make([]int,0,len(yearsSet));for y:=range yearsSet{years=append(years,y)};sort.Ints(years)
+	writeJSON(w,map[string]any{"ok":true,"file_name":filepath.Base(header.Filename),"sheet_name":sheet,"rows":rows,"counts":counts,"years":years})
+}
+
+func filterNonEmptyRows(rows [][]string) [][]string {out:=make([][]string,0,len(rows));for _,row:=range rows{nonempty:=false;for _,v:=range row{if strings.TrimSpace(v)!=""{nonempty=true;break}};if nonempty{out=append(out,row)}};return out}
+
+func (h *controller) r11FlightImportConfirm(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w,r,"Импорт согласованных полётов",func(root map[string]json.RawMessage)(map[string]any,string,error){
+		body,err:=r11BodyMap(w,r,16<<20);if err!=nil{return nil,"",err};var incoming []map[string]json.RawMessage
+		if err:=json.Unmarshal(r11Raw(body,"rows"),&incoming);err!=nil{return nil,"",fmt.Errorf("неверный список полётов: %w",err)};if len(incoming)==0{return nil,"",fmt.Errorf("не выбраны строки для импорта")}
+		rows,err:=r11Array(root,"flight_dates");if err!=nil{return nil,"",err};set:=map[string]bool{};for _,x:=range rows{set[r11String(x,"collection_point")+"|"+r11String(x,"date")]=true};added,skipped:=0,0
+		for _,x:=range incoming{point,date:=r11String(x,"collection_point"),r11NormalizeDate(r11String(x,"date"));if point==""||date==""{skipped++;continue};key:=point+"|"+date;if set[key]{skipped++;continue}
+			item:=map[string]json.RawMessage{};r11Put(item,"id",r11NextID(root));r11Put(item,"collection_point",point);r11Put(item,"date",date);source:=r11String(x,"source");if source==""{source="Импорт Excel"};r11Put(item,"source",source);r11Put(item,"note",r11String(x,"note"));r11Put(item,"created_at",time.Now().Format(time.RFC3339));rows=append(rows,item);set[key]=true;added++}
+		r11SetArray(root,"flight_dates",rows);return map[string]any{"added":added,"skipped":skipped},fmt.Sprintf("добавлено %d, пропущено %d",added,skipped),nil
+	})
+}
+
+func (h *controller) r11EmployeeFlightImportConfirm(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w,r,"Импорт индивидуальных полётов",func(root map[string]json.RawMessage)(map[string]any,string,error){
+		body,err:=r11BodyMap(w,r,32<<20);if err!=nil{return nil,"",err};var incoming []map[string]json.RawMessage
+		if err:=json.Unmarshal(r11Raw(body,"rows"),&incoming);err!=nil{return nil,"",fmt.Errorf("неверный список индивидуальных полётов: %w",err)};if len(incoming)==0{return nil,"",fmt.Errorf("нет строк для импорта")}
+		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err};rows,err:=r11Array(root,"employee_flights");if err!=nil{return nil,"",err};added,updated,skipped:=0,0,0
+		for _,x:=range incoming{employeeID:=r11Int(x,"employee_id");if employeeID==0&&r11String(x,"tab_no")!=""{e,_:=r11FindEmployee(employees,r11String(x,"tab_no"));if e!=nil{employeeID=r11Int(e,"id")}}
+			if _,pos:=r11FindEmployeeID(employees,employeeID);pos<0{skipped++;continue};date:=r11NormalizeDate(r11String(x,"date"));kind:=r11String(x,"kind");if date==""||kind==""{skipped++;continue}
+			replaceID:=r11Int(x,"replace_id");pos:=-1;if replaceID>0{_,pos=r11FindRecordID(rows,replaceID)};if pos<0{for i,old:=range rows{if r11Int(old,"employee_id")==employeeID&&r11String(old,"date")==date&&strings.EqualFold(r11String(old,"kind"),kind){pos=i;break}}}
+			item:=map[string]json.RawMessage{};if pos>=0{item=rows[pos]}else{r11Put(item,"id",r11NextID(root));r11Put(item,"created_at",time.Now().Format(time.RFC3339))}
+			r11Put(item,"employee_id",employeeID);r11Put(item,"date",date);r11Put(item,"kind",kind);r11Put(item,"collection_point",r11String(x,"collection_point"));r11Put(item,"note",r11String(x,"note"));r11Put(item,"source",r11String(x,"source"));r11Put(item,"updated_at",time.Now().Format(time.RFC3339))
+			if pos>=0{rows[pos]=item;updated++}else{rows=append(rows,item);added++}}
+		r11SetArray(root,"employee_flights",rows);return map[string]any{"added":added,"updated":updated,"skipped":skipped},fmt.Sprintf("%s · добавлено %d, обновлено %d, пропущено %d",r11String(body,"file_name"),added,updated,skipped),nil
+	})
+}
+
+func (h *controller) r11EmployeeFlightDelete(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w,r,"Индивидуальный полёт удалён",func(root map[string]json.RawMessage)(map[string]any,string,error){
+		body,err:=r11BodyMap(w,r,1<<20);if err!=nil{return nil,"",err};rows,err:=r11Array(root,"employee_flights");if err!=nil{return nil,"",err};id:=r11Int(body,"id");_,pos:=r11FindRecordID(rows,id);if pos<0{return nil,"",fmt.Errorf("индивидуальный полёт не найден")}
+		rows=append(rows[:pos],rows[pos+1:]...);r11SetArray(root,"employee_flights",rows);return map[string]any{"id":id},fmt.Sprintf("ID %d",id),nil
+	})
+}
+
+func (h *controller) r11Demo(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w,r,"Демо-сотрудник создан",func(root map[string]json.RawMessage)(map[string]any,string,error){
+		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err};if e,_:=r11FindEmployee(employees,"311267");e!=nil{return map[string]any{"id":r11Int(e,"id"),"exists":true},"Демо-сотрудник 311267 уже существует",nil}
+		item:=map[string]json.RawMessage{};r11Put(item,"id",r11NextID(root));r11Put(item,"tab_no","311267");r11Put(item,"full_name","ДЕМО · Водитель 311267");r11Put(item,"position","Водитель");r11Put(item,"unit","Демо");r11Put(item,"collection_point","Тюмень");r11Put(item,"schedule_type","");r11Put(item,"is_quarter",false);r11Put(item,"hire_date","2026-01-01");r11Put(item,"fire_date","");r11Put(item,"probation",false);r11Put(item,"probation_end","");r11Put(item,"main_schedule_ready",false);r11Put(item,"notes","СИНТЕТИЧЕСКИЕ ДЕМО-ДАННЫЕ");r11Put(item,"created_at",time.Now().Format(time.RFC3339))
+		employees=append(employees,item);r11SetArray(root,"employees",employees);return map[string]any{"id":r11Int(item,"id")},"Синтетический сотрудник 311267",nil
+	})
+}
+
+func (h *controller) r11DemoAutograf(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w,r,"Демо-график АвтоГраф создан",func(root map[string]json.RawMessage)(map[string]any,string,error){
+		body,err:=r11BodyMap(w,r,1<<20);if err!=nil{return nil,"",err};year:=int(r11Int(body,"year"));if year<2000||year>2100{return nil,"",fmt.Errorf("неверный год")}
+		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err};emp,_:=r11FindEmployee(employees,"311267");if emp==nil{return nil,"",fmt.Errorf("сначала создайте демо-сотрудника")};id:=r11Int(emp,"id")
+		days,err:=r11Array(root,"days");if err!=nil{return nil,"",err};for _,d:=range days{if r11Int(d,"employee_id")==id&&strings.HasPrefix(r11String(d,"date"),fmt.Sprintf("%04d-",year)){return nil,"",fmt.Errorf("у демо-сотрудника уже есть график за %d год",year)}}
+		types,err:=r11Array(root,"schedule_types");if err!=nil{return nil,"",err};hasType:=false;for _,x:=range types{if r11String(x,"collection_point")=="Тюмень"&&r11String(x,"name")=="Демо A"{hasType=true}}
+		if !hasType{for _,phase:=range []string{"A","B"}{x:=map[string]json.RawMessage{};r11Put(x,"id",r11NextID(root));r11Put(x,"collection_point","Тюмень");r11Put(x,"name","Демо "+phase);pair:="Демо B";if phase=="B"{pair="Демо A"};r11Put(x,"pair_name",pair);r11Put(x,"phase",phase);r11Put(x,"active",true);r11Put(x,"note","Синтетический пример");types=append(types,x)};r11SetArray(root,"schedule_types",types)}
+		r11Put(emp,"schedule_type","Демо A");r11SetArray(root,"employees",employees)
+		flights,err:=r11Array(root,"flight_dates");if err!=nil{return nil,"",err};start:=time.Date(year,1,2,0,0,0,0,time.UTC);second:=start.AddDate(0,0,14);seq:=1
+		for d:=start;d.Year()==year;{x:=map[string]json.RawMessage{};r11Put(x,"id",r11NextID(root));r11Put(x,"collection_point","Тюмень");r11Put(x,"date",d.Format("2006-01-02"));r11Put(x,"source","Демо-цикл");note:="Первая последовательность · LCSEQ:1";if seq==2{note="Вторая последовательность · LCSEQ:2"};r11Put(x,"note",note);flights=append(flights,x);if seq==1{d=second}else{d=d.AddDate(0,0,28)};seq=3-seq}
+		r11SetArray(root,"flight_dates",flights);seq=1;cursor:=time.Date(year,1,2,0,0,0,0,time.UTC)
+		for cursor.Year()==year{phase,plan,hours:="WORK","11",11.0;if seq==2{phase="FREE";plan="В";hours=0};next:=cursor.AddDate(0,0,14);if seq==2{next=cursor.AddDate(0,0,28)}
+			for d:=cursor;d.Before(next)&&d.Year()==year;d=d.AddDate(0,0,1){p,h:=plan,hours;if d.Equal(cursor){p="ДП";h=0};x:=map[string]json.RawMessage{};r11Put(x,"id",r11NextID(root));r11Put(x,"employee_id",id);r11Put(x,"date",d.Format("2006-01-02"));r11Put(x,"plan",p);r11Put(x,"plan_hours",h);r11Put(x,"fact","");r11Put(x,"fact_hours",0);r11Put(x,"shift","");r11Put(x,"state",phase);r11Put(x,"comment","СИНТЕТИЧЕСКИЙ ДЕМО-ГРАФИК");days=append(days,x)}
+			cursor=next;seq=3-seq}
+		r11SetArray(root,"days",days);return map[string]any{"employee_id":id,"year":year},fmt.Sprintf("Демо АвтоГраф · 311267 · %d",year),nil
+	})
+}
