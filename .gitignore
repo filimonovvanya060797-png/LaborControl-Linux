@@ -32,3 +32,17 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+# LaborControl: рабочие базы
+**/labor_control.json
+**/labor_control_tab2.json
+**/labor_control_*.json
+
+# Резервные копии
+**/backups/
+**/bulk_staged.json
+**/*.bak
+**/*.tmp
+**/*.log
+
+# Локальные данные
+**/data/
