@@ -78,7 +78,7 @@ func main() {
 	// listening on 8767, stop it first so a newly launched ZIP cannot silently
 	// fall back to yesterday's controller/frontend.
 	if v, err := existingControllerVersion(); err == nil && v != "" {
-		if v == r11StateCompatVersion || (v == controllerVersion && !platformStandaloneMode()) {
+		if v == r11CoreVersion || v == r11StateCompatVersion || (v == controllerVersion && !platformStandaloneMode()) {
 			if u, e := requestExistingStart(); e == nil && u != "" {
 				if e = openURL(u); e != nil {
 					showMessage("LaborControl", "Программа уже запущена, но не удалось открыть браузер: "+e.Error())
@@ -267,7 +267,7 @@ func (h *controller) health(w http.ResponseWriter, r *http.Request) {
 	}
 	version := controllerVersion
 	if h.standalone {
-		version = r11StateCompatVersion
+		version = r11CoreVersion
 	}
 	writeJSON(w, map[string]any{"ok": true, "version": version})
 }
