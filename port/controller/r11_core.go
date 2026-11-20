@@ -802,10 +802,8 @@ func (h *controller) r11RevisionCreate(w http.ResponseWriter, r *http.Request) {
 			if n := r11Int(old, "number"); n > maxNo { maxNo = n }
 			if strings.EqualFold(r11String(old, "status"), "ACTIVE") {
 				parent = r11Int(old, "id")
-				r11Put(old, "days_snapshot", filter(days))
-				r11Put(old, "events_snapshot", filter(events))
-				r11Put(old, "notes_snapshot", filter(notes))
-				r11Put(old, "colors_snapshot", filter(colors))
+				// The archived revision is a historical snapshot. Do not replace
+				// it with the currently edited days when a new revision is created.
 				r11Put(old, "status", "ARCHIVED")
 				r11Put(old, "updated_at", time.Now().Format(time.RFC3339))
 			}
