@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -242,5 +243,104 @@ func TestDecodeR11ImportRejectsMissingSchemaFields(t *testing.T) {
 	_, _, err := decodeR11Import([]byte(`{"data":{"employees":[]}}`))
 	if err == nil || !strings.Contains(err.Error(), "calendar") {
 		t.Fatalf("expected missing calendar error, got %v", err)
+	}
+}
+
+func TestR11UpdateDaysHandles450EmployeesAndMonthlyGrid(t *testing.T) {
+	h := newR11TestController(t)
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(emptyR11DataJSON(), &root); err != nil {
+		t.Fatal(err)
+	}
+	const employeeCount = 450
+	const daysPerEmployee = 30
+	employees := make([]map[string]any, 0, employeeCount)
+	days := make([]map[string]any, 0, employeeCount*daysPerEmployee)
+	nextID := 1
+	for employee := 1; employee <= employeeCount; employee++ {
+		employees = append(employees, map[string]any{
+			"id": employee, "tab_no": fmt.Sprintf("T%04d", employee),
+			"full_name": fmt.Sprintf("Synthetic driver %04d", employee),
+		})
+		for day := 1; day <= daysPerEmployee; day++ {
+			days = append(days, map[string]any{
+				"id": nextID, "employee_id": employee,
+				"date": fmt.Sprintf("2026-01-%02d", day),
+				"plan": "8", "plan_hours": 8,
+				"fact": "8", "fact_hours": 8,
+				"shift": "DAY", "state": "planned", "comment": "",
+			})
+			nextID++
+		}
+	}
+	root["employees"], _ = json.Marshal(employees)
+	root["days"], _ = json.Marshal(days)
+	root["next_id"], _ = json.Marshal(nextID)
+	initial, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWrite(h.mainDBPath(), initial); err != nil {
+		t.Fatal(err)
+	}
+
+	changes := make([]r11DayChange, 0, employeeCount)
+	for employee := 1; employee <= employeeCount; employee++ {
+		plan := "2/10"
+		hours := int32(10)
+		changes = append(changes, r11DayChange{
+			EmployeeID: int64(employee), Date: "2026-01-01",
+			Plan: &plan, PlanHours: &hours,
+		})
+	}
+	requestBody, err := json.Marshal(r11DayChangesRequest{Days: changes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/state/days", bytes.NewReader(requestBody))
+	rec := httptest.NewRecorder()
+	h.r11UpdateDays(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("450-employee update status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var result struct {
+		Updated   int `json:"updated"`
+		Created   int `json:"created"`
+		Employees int `json:"employees"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Updated != employeeCount || result.Created != 0 || result.Employees != employeeCount {
+		t.Fatalf("unexpected 450-employee result: %+v", result)
+	}
+	stored, err := os.ReadFile(h.mainDBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]json.RawMessage
+	if err := json.Unmarshal(stored, &saved); err != nil {
+		t.Fatal(err)
+	}
+	var savedDays []map[string]json.RawMessage
+	if err := json.Unmarshal(saved["days"], &savedDays); err != nil {
+		t.Fatal(err)
+	}
+	if len(savedDays) != employeeCount*daysPerEmployee {
+		t.Fatalf("stored day count=%d, want %d", len(savedDays), employeeCount*daysPerEmployee)
+	}
+	var plan, fact string
+	var hours int
+	if err := json.Unmarshal(savedDays[0]["plan"], &plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(savedDays[0]["fact"], &fact); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(savedDays[0]["plan_hours"], &hours); err != nil {
+		t.Fatal(err)
+	}
+	if plan != "2/10" || fact != "8" || hours != 10 {
+		t.Fatalf("plan/fact/hours = %q/%q/%d; expected 2/10/8/10", plan, fact, hours)
 	}
 }
