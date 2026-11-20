@@ -16,15 +16,15 @@ function Get-JsonType($Value) {
 try {
     $response = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 10
 } catch {
-    Write-Host 'Не удалось получить /api/state.' -ForegroundColor Red
-    Write-Host 'Убедись, что LaborControl R11 запущен на этом компьютере Windows.'
-    Write-Host 'Проверь, что локальный адрес 127.0.0.1:8779 доступен.'
+    Write-Host 'Could not read /api/state.' -ForegroundColor Red
+    Write-Host 'Make sure LaborControl R11 is running on this Windows computer.'
+    Write-Host 'Check that 127.0.0.1:8779 is available locally.'
     Write-Host $_.Exception.Message
     exit 1
 }
 
 if ($null -eq $response.data) {
-    throw 'Ответ не содержит поля data. Файл отчёта не создан.'
+    throw 'The response has no data field. No report was created.'
 }
 
 $dataShape = [ordered]@{}
@@ -92,5 +92,5 @@ $outPath = Join-Path $desktop 'LaborControl_R11_schema.json'
 $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $outPath -Encoding UTF8
 
 Write-Host ''
-Write-Host 'Готово. Сохранена только структура API, без значений и персональных данных.' -ForegroundColor Green
+Write-Host 'Done. Only API structure was saved; no field values or personal data were written.' -ForegroundColor Green
 Write-Host $outPath
