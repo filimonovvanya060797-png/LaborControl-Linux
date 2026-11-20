@@ -1,0 +1,41 @@
+name: Linux schedules first screen
+
+on:
+  pull_request:
+    paths:
+      - 'port/schedules-preview/**'
+      - '.github/workflows/linux-schedules-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: port/schedules-preview/go.mod
+          cache: false
+      - name: Unit tests and static analysis
+        working-directory: port/schedules-preview
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go test -count=1 ./...
+          go vet ./...
+      - name: Build standalone schedule preview
+        working-directory: port/schedules-preview
+        env:
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o /tmp/laborcontrol-schedules-preview .
+      - name: Package Linux executable for manual ALT test
+        uses: actions/upload-artifact@v4
+        with:
+          name: LaborControl-schedules-preview-linux-x64
+          path: /tmp/laborcontrol-schedules-preview
+          retention-days: 14
