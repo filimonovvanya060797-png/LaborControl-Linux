@@ -84,7 +84,7 @@ async function loadState(){
     const data=state.data||{};
     employees=Array.isArray(data.employees)?data.employees:[];
     $("summary").textContent=employees.length+" сотрудников · "+(Array.isArray(data.days)?data.days.length:0)+" дней · "+state.version;
-    render();notify("Состояние загружено. Для редактирования выберите ячейку, задайте план и часы, затем сохраните пакет.","success");
+    render();
   }catch(e){notify("Не удалось загрузить состояние: "+e.message,"error");}
 }
 function render(){
