@@ -23,7 +23,7 @@ jobs:
       - name: Validate GitHub API download for slash-containing branch
         shell: powershell
         run: |
-          $uri = 'https://api.github.com/repos/filimonovvanya060797-png/LaborControl-Linux/contents/tools/export_r11_schema.ps1?ref=feature%2Fr11-core-recovery-20261120'
+          $uri = 'https://api.github.com/repos/filimonovvanya060797-png/LaborControl-Linux/contents/tools/export_r11_schema.ps1?ref=feature/r11-core-recovery-20261120'
           $response = Invoke-RestMethod -Uri $uri -Headers @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'LaborControl-schema-exporter' }
           $downloaded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(($response.content -replace '\s', '')))
           $local = Get-Content -LiteralPath 'tools/export_r11_schema.ps1' -Raw
