@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LaborControl — R11 Linux</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb}
+*{box-sizing:border-box}body{margin:0}header{background:#172c4d;color:#fff;padding:20px 24px}
+h1{font-size:22px;margin:0 0 6px}header p{margin:0;color:#c8d5e8;font-size:13px}
+main{padding:18px;max-width:1600px;margin:auto}
+.panel{background:#fff;border:1px solid #d7e0ec;border-radius:10px;padding:14px;margin-bottom:14px}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button,input{font:inherit}button{border:1px solid #b9c8da;border-radius:7px;background:#fff;padding:8px 12px;cursor:pointer}
+button.primary{background:#1d5fa7;color:#fff;border-color:#1d5fa7}button:disabled{opacity:.45;cursor:not-allowed}
+input[type=search],input[type=month]{border:1px solid #b9c8da;border-radius:7px;padding:8px}
+#notice{padding:10px 12px;border-radius:8px;background:#fff5d9;color:#684a00;font-size:13px;margin:12px 0}
+#notice.error{background:#ffe8e8;color:#8b1e1e}#notice.success{background:#e8f5eb;color:#1e6331}
+.small{color:#66758b;font-size:12px}.table-wrap{overflow:auto;max-height:65vh;border:1px solid #d7e0ec;border-radius:8px;background:#fff}
+table{border-collapse:separate;border-spacing:0;white-space:nowrap;font-size:12px;min-width:100%}
+th,td{border-right:1px solid #e0e7f0;border-bottom:1px solid #e0e7f0;padding:0;text-align:center}
+th{position:sticky;top:0;background:#eaf0f8;z-index:2;height:32px}
+th:first-child,td:first-child{position:sticky;left:0;background:#f8fafd;z-index:1;text-align:left;min-width:210px;padding:6px 9px}
+th:first-child{z-index:3;background:#eaf0f8}
+.day{border:0;border-radius:0;width:36px;height:34px;padding:0;background:transparent;font-weight:600}
+.day:hover{background:#e7f1ff}.day.pending{background:#fff0bf;color:#704d00}
+.employee-name{font-weight:600}.tabno{color:#66758b;font-size:11px}
+.pagination{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:10px}
+@media(max-width:700px){main{padding:8px}header{padding:14px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>LaborControl · Linux · R11</h1>
+  <p>Локальный модуль хранения и редактирования плановых дней</p>
+</header>
+<main>
+  <section class="panel">
+    <div class="toolbar">
+      <label>Месяц <input id="month" type="month"></label>
+      <input id="search" type="search" placeholder="Поиск по табельному номеру или ФИО">
+      <button id="refresh">Обновить</button>
+      <span id="summary" class="small">Загрузка состояния…</span>
+    </div>
+    <div id="notice">Это первый локальный модуль совместимого состояния R11, а не полный Core R11. АвтоГраф, расчёт циклов полётов и проверки пока не перенесены. Импортируйте файл состояния Windows R11, если хотите работать с реальными данными. Файл передаётся только локальному серверу на этом компьютере — не отправляйте его в GitHub или чат.</div>
+    <div class="toolbar">
+      <input id="stateFile" type="file" accept=".json,application/json">
+      <button id="import" class="primary" disabled>Импортировать состояние</button>
+      <button id="save" class="primary" disabled>Сохранить изменения (<span id="pendingCount">0</span>)</button>
+      <span class="small">Изменения сначала накапливаются в таблице. Сохранение выполняется одним пакетом с резервной копией.</span>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table><thead id="head"></thead><tbody id="body"><tr><td>Загрузка…</td></tr></tbody></table>
+    </div>
+    <div class="pagination">
+      <button id="prev">Назад</button><span id="pageInfo" class="small"></span><button id="next">Далее</button>
+    </div>
+  </section>
+  <p class="small">Редактируется только план и плановые часы. Факт, смена, комментарии и неизвестные поля существующих записей сохраняются без изменений.</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let state=null, pending=new Map(), page=0, pageSize=40, employees=[], visible=[];
+const pad=n=>String(n).padStart(2,"0");
+function selectedMonth(){return $("month").value||new Date().getFullYear()+"-"+pad(new Date().getMonth()+1)}
+function dayKey(id,date){return id+"|"+date}
+function dateList(){
+  const [y,m]=selectedMonth().split("-").map(Number), count=new Date(y,m,0).getDate();
+  return Array.from({length:count},(_,i)=>y+"-"+pad(m)+"-"+pad(i+1));
+}
+function notify(message,kind=""){
+  $("notice").textContent=message;$("notice").className=kind;
+}
+function updatePending(){
+  $("pendingCount").textContent=pending.size;$("save").disabled=pending.size===0;
+}
+async function loadState(){
+  try{
+    const response=await fetch("/api/state",{cache:"no-store"});
+    if(!response.ok)throw new Error(await response.text());
+    state=await response.json();
+    const data=state.data||{};
+    employees=Array.isArray(data.employees)?data.employees:[];
+    $("summary").textContent=employees.length+" сотрудников · "+(Array.isArray(data.days)?data.days.length:0)+" дней · "+state.version;
+    render();notify("Состояние загружено. Для редактирования выберите ячейку, задайте план и часы, затем сохраните пакет.","success");
+  }catch(e){notify("Не удалось загрузить состояние: "+e.message,"error");}
+}
+function render(){
+  if(!state)return;
+  const dates=dateList(), q=$("search").value.trim().toLocaleLowerCase("ru");
+  visible=employees.filter(e=>(String(e.tab_no||"")+" "+String(e.full_name||"")).toLocaleLowerCase("ru").includes(q));
+  const pages=Math.max(1,Math.ceil(visible.length/pageSize));page=Math.min(page,pages-1);
+  const start=page*pageSize, rows=visible.slice(start,start+pageSize);
+  const head=$("head");head.replaceChildren();
+  const tr=document.createElement("tr"), first=document.createElement("th");first.textContent="Табель / ФИО";tr.append(first);
+  dates.forEach(d=>{const th=document.createElement("th");th.textContent=String(Number(d.slice(-2)));tr.append(th)});head.append(tr);
+  const dayRecords=state.data.days||[], dayMap=new Map(dayRecords.map(d=>[dayKey(d.employee_id,d.date),d]));
+  const body=$("body");body.replaceChildren();
+  if(rows.length===0){const r=document.createElement("tr"),c=document.createElement("td");c.colSpan=dates.length+1;c.textContent=employees.length?"Ничего не найдено":"Сотрудников пока нет. Импортируйте JSON-состояние Windows R11.";r.append(c);body.append(r)}
+  rows.forEach(emp=>{
+    const row=document.createElement("tr"),name=document.createElement("td");
+    const strong=document.createElement("div");strong.className="employee-name";strong.textContent=emp.full_name||"Без ФИО";
+    const small=document.createElement("div");small.className="tabno";small.textContent=emp.tab_no||"";
+    name.append(strong,small);row.append(name);
+    dates.forEach(date=>{
+      const key=dayKey(emp.id,date),saved=dayMap.get(key),change=pending.get(key);
+      const cell=document.createElement("td"),btn=document.createElement("button");btn.className="day"+(change?" pending":"");
+      const plan=change?change.plan:(saved?saved.plan:"");
+      btn.textContent=plan||"·";btn.title=date+" · "+(plan||"пусто");
+      btn.addEventListener("click",()=>editDay(emp,date,saved,change));
+      cell.append(btn);row.append(cell);
+    });
+    body.append(row);
+  });
+  $("pageInfo").textContent=visible.length?("Строки "+(start+1)+"–"+Math.min(start+pageSize,visible.length)+" из "+visible.length):"0 сотрудников";
+  $("prev").disabled=page===0;$("next").disabled=page>=pages-1;
+  updatePending();
+}
+function inferHours(plan,current){
+  const p=plan.trim().toUpperCase();
+  if(!p||["В","ОТ","ДП"].includes(p))return 0;
+  const m=p.match(/(?:^|\/)(\d+(?:[.,]\d+)?)$/)||p.match(/^(\d+(?:[.,]\d+)?)$/);
+  if(m){const n=Number(m[1].replace(",","."));if(Number.isInteger(n)&&n>=0&&n<=24)return n}
+  return current??0;
+}
+function editDay(emp,date,saved,change){
+  const old=change||saved||{}, oldPlan=old.plan||"";
+  const plan=prompt("План на "+date+" (например, 11, В, ДП, 1/11, 2/11):",oldPlan);
+  if(plan===null)return;
+  const guessed=inferHours(plan,old.plan_hours);
+  const hoursText=prompt("Плановые часы (целое число от 0 до 24):",String(guessed));
+  if(hoursText===null)return;
+  const hours=Number(hoursText);
+  if(!Number.isInteger(hours)||hours<0||hours>24){notify("Часы должны быть целым числом от 0 до 24.","error");return}
+  const key=dayKey(emp.id,date);
+  pending.set(key,{employee_id:Number(emp.id),date,plan,plan_hours:hours});
+  render();
+}
+async function saveChanges(){
+  const days=Array.from(pending.values());if(!days.length)return;
+  $("save").disabled=true;
+  try{
+    const response=await fetch("/api/state/days",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({days})});
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||"HTTP "+response.status);
+    pending.clear();await loadState();
+    notify("Сохранено. Новых дней: "+result.created+"; обновлено: "+result.updated+". Резервная копия: "+(result.backup||"не требовалась"),"success");
+  }catch(e){notify("Сохранение не выполнено: "+e.message,"error");$("save").disabled=pending.size===0;}
+}
+async function importState(){
+  const file=$("stateFile").files[0];if(!file)return;
+  if(!confirm("Импортировать "+file.name+" в локальную базу LaborControl? Текущая база будет сохранена в резервную копию."))return;
+  $("import").disabled=true;
+  try{
+    const response=await fetch("/api/state/import",{method:"POST",headers:{"Content-Type":"application/json"},body:await file.text()});
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||"HTTP "+response.status);
+    pending.clear();$("stateFile").value="";await loadState();
+    notify("Импортировано сотрудников: "+result.employees+"; дней: "+result.days+". Резервная копия: "+(result.backup||"не требовалась"),"success");
+  }catch(e){notify("Импорт не выполнен: "+e.message,"error");}
+  finally{$("import").disabled=!$("stateFile").files.length;}
+}
+$("month").value=new Date().getFullYear()+"-"+pad(new Date().getMonth()+1);
+$("month").addEventListener("change",()=>{page=0;render()});
+$("search").addEventListener("input",()=>{page=0;render()});
+$("refresh").addEventListener("click",loadState);
+$("save").addEventListener("click",saveChanges);
+$("stateFile").addEventListener("change",()=>{$("import").disabled=!$("stateFile").files.length});
+$("import").addEventListener("click",importState);
+$("prev").addEventListener("click",()=>{page--;render()});
+$("next").addEventListener("click",()=>{page++;render()});
+loadState();
+</script>
+</body>
+</html>
