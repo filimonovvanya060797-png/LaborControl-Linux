@@ -35,6 +35,17 @@ jobs:
           id
           go version
 
+      - name: Проверить форматирование Go
+        working-directory: port/controller
+        shell: bash
+        run: |
+          set -eu
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'Не отформатированы Go-файлы:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
       - name: Запустить Go-тесты контроллера
         working-directory: port/controller
         env:
@@ -69,3 +80,26 @@ jobs:
           go build -trimpath -o "$RUNNER_TEMP/laborcontrol-controller" .
           test -x "$RUNNER_TEMP/laborcontrol-controller"
           ls -lh "$RUNNER_TEMP/laborcontrol-controller"
+
+      - name: Проверить кросс-сборку Windows
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOOS: windows
+          GOARCH: amd64
+        shell: bash
+        run: |
+          set -eu
+          go test -c -o "$RUNNER_TEMP/laborcontrol-controller.test.exe" .
+          go build -trimpath -o "$RUNNER_TEMP/laborcontrol-controller.exe" .
+          ls -lh "$RUNNER_TEMP/laborcontrol-controller.exe"
+
+      - name: Опубликовать бинарник ALT Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: laborcontrol-r11-state-alt-x86_64
+          path: ${{ runner.temp }}/laborcontrol-controller
+          if-no-files-found: error
+          retention-days: 14
