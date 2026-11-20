@@ -204,3 +204,17 @@ func TestR11CoreVersionRestoreAndCSVFactImport(t *testing.T) {
 	var history []map[string]json.RawMessage;_ = json.Unmarshal(data["import_history"],&history)
 	if len(history)!=1||r11String(history[0],"kind")!="FACT"{t.Fatalf("import history=%+v",history)}
 }
+
+
+func TestR11FullUIIncludesOriginalModulesAndLocalImport(t *testing.T) {
+	h:=newR11TestController(t)
+	req:=httptest.NewRequest(http.MethodGet,"/r11",nil)
+	rec:=httptest.NewRecorder()
+	h.serveFullR11UI(rec,req)
+	if rec.Code!=http.StatusOK{t.Fatalf("UI status=%d",rec.Code)}
+	page:=rec.Body.String()
+	for _,want:=range []string{"АвтоГраф","Проверка табеля","Перенос базы из Windows R11","/api/state/import","R11 Linux Core"}{
+		if !strings.Contains(page,want){t.Fatalf("full UI is missing %q",want)}
+	}
+	if strings.Contains(page,"R11-LINUX-STATE-COMPAT/0.1"){t.Fatal("state-only compatibility UI is still being served")}
+}
