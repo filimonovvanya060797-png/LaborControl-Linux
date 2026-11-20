@@ -70,6 +70,7 @@ type controller struct {
 	coreCmd  *exec.Cmd
 	coreDone chan error
 	coreURL  string
+	standalone bool
 }
 
 func main() {
@@ -77,7 +78,7 @@ func main() {
 	// listening on 8767, stop it first so a newly launched ZIP cannot silently
 	// fall back to yesterday's controller/frontend.
 	if v, err := existingControllerVersion(); err == nil && v != "" {
-		if v == controllerVersion {
+		if v == controllerVersion || v == r11StateCompatVersion {
 			if u, e := requestExistingStart(); e == nil && u != "" {
 				if e = openURL(u); e != nil {
 					showMessage("LaborControl", "Программа уже запущена, но не удалось открыть браузер: "+e.Error())
@@ -121,7 +122,13 @@ func main() {
 		logf:     lf,
 	}
 	if _, err := os.Stat(h.corePath); err != nil {
-		showMessage("LaborControl", "Не найден внутренний компонент Core ("+filepath.Base(h.corePath)+"). Для полноценного запуска Linux-версии требуется восстановить и собрать отсутствующий Core v0.9.11.")
+		if platformStandaloneMode() {
+			if runErr := h.runStandaloneR11(); runErr != nil {
+				showMessage("LaborControl", runErr.Error())
+			}
+			return
+		}
+		showMessage("LaborControl", "Не найден внутренний компонент Core ("+filepath.Base(h.corePath)+"). Для полноценного запуска Windows-версии требуется восстановить Core.")
 		return
 	}
 
@@ -258,7 +265,11 @@ func (h *controller) health(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "version": controllerVersion})
+	version := controllerVersion
+	if h.standalone {
+		version = r11StateCompatVersion
+	}
+	writeJSON(w, map[string]any{"ok": true, "version": version})
 }
 
 func (h *controller) startEndpoint(w http.ResponseWriter, r *http.Request) {
