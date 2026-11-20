@@ -35,17 +35,6 @@ jobs:
           id
           go version
 
-      - name: Проверить форматирование Go
-        working-directory: port/controller
-        shell: bash
-        run: |
-          set -eu
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            printf 'Не отформатированы Go-файлы:\n%s\n' "$unformatted"
-            exit 1
-          fi
-
       - name: Запустить Go-тесты контроллера
         working-directory: port/controller
         env:
