@@ -90,3 +90,6 @@ func findCoreURL(pid int) (string, error) {
     if err != nil { return "", err }
     return parseNetstatForPID(string(out), pid), nil
 }
+
+// Windows continues to launch the original Core and never uses standalone mode.
+func platformStandaloneMode() bool { return false }
