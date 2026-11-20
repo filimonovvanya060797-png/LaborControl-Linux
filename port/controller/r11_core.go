@@ -775,7 +775,9 @@ func (h *controller) r11ScheduleChange(w http.ResponseWriter, r *http.Request) {
 		r11Put(emp, "schedule_type", newSchedule); r11Put(emp, "updated_at", time.Now().Format(time.RFC3339)); r11SetArray(root, "employees", employees)
 		return map[string]any{"id": r11Int(item, "id"), "hours_before": hoursBefore}, fmt.Sprintf("%s · %s → %s · %s", r11String(emp, "tab_no"), old, newSchedule, date), nil
 	})
-}func (h *controller) r11RevisionCreate(w http.ResponseWriter, r *http.Request) {
+}
+
+func (h *controller) r11RevisionCreate(w http.ResponseWriter, r *http.Request) {
 	h.r11Mutate(w, r, "Официальная редакция графика создана", func(root map[string]json.RawMessage) (map[string]any, string, error) {
 		body, err := r11BodyMap(w, r, 4<<20)
 		if err != nil { return nil, "", err }
@@ -822,7 +824,9 @@ func (h *controller) r11ScheduleChange(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, item); r11SetArray(root, "graph_revisions", rows)
 		return map[string]any{"id": r11Int(item, "id"), "number": maxNo+1, "status": "ACTIVE"}, fmt.Sprintf("%s · редакция №%d · %s", r11String(emp, "tab_no"), maxNo+1, effective), nil
 	})
-}func (h *controller) r11RevisionGet(w http.ResponseWriter, r *http.Request) {
+}
+
+func (h *controller) r11RevisionGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method!=http.MethodGet{http.Error(w,"GET only",405);return}
 	id,err:=strconv.ParseInt(r.URL.Query().Get("id"),10,64);if err!=nil||id<1{http.Error(w,"неверный id редакции",400);return}
 	h.opMu.Lock();root,e:=h.r11LoadRootLocked();h.opMu.Unlock();if e!=nil{http.Error(w,e.Error(),500);return}
@@ -901,7 +905,9 @@ func (h *controller) r11NoteSplit(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, standalone); r11SetArray(root, "notes", rows)
 		return map[string]any{"id": id, "standalone_id": r11Int(standalone, "id")}, fmt.Sprintf("ID %d · %s", id, date), nil
 	})
-}func r11DateAdd(date string, n int) string {
+}
+
+func r11DateAdd(date string, n int) string {
 	d,e:=time.Parse("2006-01-02",date);if e!=nil{return date};return d.AddDate(0,0,n).Format("2006-01-02")
 }
 
