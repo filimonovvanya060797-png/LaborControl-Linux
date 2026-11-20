@@ -64,7 +64,7 @@ func TestRejectInvalidEdit(t *testing.T) {
 	for _, body := range []string{
 		`{"tab_no":"D9999","date":"2026-11-23","plan":"8"}`,
 		`{"tab_no":"D0001","date":"2026-02-30","plan":"8"}`,
-		`{"tab_no":"D0001","date":"2026-11-23","plan":"a\\nb"}`,
+		`{"tab_no":"D0001","date":"2026-11-23","plan":"abcdefghijklmnopqrstuvwxyz"}`,
 	} {
 		w := httptest.NewRecorder()
 		a.handler().ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/plan", strings.NewReader(body)))
