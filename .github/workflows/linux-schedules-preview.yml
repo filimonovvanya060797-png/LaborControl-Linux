@@ -33,3 +33,9 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: go build -trimpath -o /tmp/laborcontrol-schedules-preview .
+      - name: Package Linux executable for manual ALT test
+        uses: actions/upload-artifact@v4
+        with:
+          name: LaborControl-schedules-preview-linux-x64
+          path: /tmp/laborcontrol-schedules-preview
+          retention-days: 14
