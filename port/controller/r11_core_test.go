@@ -110,7 +110,8 @@ func TestR11CoreEventsNotesColorsAndRevisionSnapshots(t *testing.T) {
 	_ = json.Unmarshal(revisions[0]["events_snapshot"],&archivedEvents);_ = json.Unmarshal(revisions[0]["notes_snapshot"],&archivedNotes);_ = json.Unmarshal(revisions[0]["colors_snapshot"],&archivedColors)
 	if len(archivedEvents)!=1||len(archivedNotes)!=1||len(archivedColors)!=3{t.Fatalf("archived snapshot events=%d notes=%d colors=%d",len(archivedEvents),len(archivedNotes),len(archivedColors))}
 	// A date separated from a multi-day note becomes its own standalone note.
-	split:=callR11Core(h,http.MethodPost,"/api/note/split",`{"id":2,"date":"2026-11-06"}`)
+	splitBody,_:=json.Marshal(map[string]any{"id":r11Int(notes[0],"id"),"date":"2026-11-06"})
+	split:=callR11Core(h,http.MethodPost,"/api/note/split",string(splitBody))
 	if split.Code!=http.StatusOK{t.Fatalf("note split=%d %s",split.Code,split.Body.String())}
 	data=readR11CoreState(t,h);_ = json.Unmarshal(data["notes"],&notes)
 	if len(notes)!=3{t.Fatalf("notes after split=%d",len(notes))}
