@@ -75,3 +75,6 @@ func findCoreURL(pid int) (string, error) {
     if err := scanner.Err(); err != nil { return "", err }
     return "", nil
 }
+
+// Linux can start the local R11 state workspace while the native Core is being ported.
+func platformStandaloneMode() bool { return true }
