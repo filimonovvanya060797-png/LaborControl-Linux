@@ -2,15 +2,12 @@
 # Запускается вручную; не выполняет приложение и не обращается к рабочим базам.
 name: ALT Linux — Go tests and build
 
+# Самостоятельная VM выключена большую часть времени: автозапуск каждого
+# push создаёт очередь десятков неподдерживаемых jobs. Локальные ALT-тесты
+# запускаются вручную, когда владелец VM включает self-hosted runner.
+# Регулярные тесты и сборки идут через linux-controller.yml на Ubuntu CI.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/r11-core-recovery-20261120
-      - feature/r11-linux-core-restore-20261120
-    paths:
-      - 'port/controller/**'
-      - '.github/workflows/alt-linux-controller-tests.yml'
 
 permissions:
   contents: read
