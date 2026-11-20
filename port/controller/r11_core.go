@@ -240,8 +240,6 @@ func r11SetArray(root map[string]json.RawMessage, key string, rows []map[string]
 }
 
 func r11NextID(root map[string]json.RawMessage) int64 {
-	var m map[string]json.RawMessage
-	_ = json.Unmarshal(root["next_id"], &m)
 	var n int64
 	_ = json.Unmarshal(root["next_id"], &n)
 	if n < 1 {
@@ -339,11 +337,6 @@ func (h *controller) r11Mutate(w http.ResponseWriter, r *http.Request, operation
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	body, err := r11BodyMap(w, r, 32<<20)
-	if err != nil {
-		r11WriteError(w, http.StatusBadRequest, err)
-		return
-	}
 	h.opMu.Lock()
 	defer h.opMu.Unlock()
 	root, err := h.r11LoadRootLocked()
@@ -438,21 +431,42 @@ func r11ComputeDiscrepancies(root map[string]json.RawMessage) []map[string]any {
 
 func (h *controller) r11EmployeeSave(w http.ResponseWriter, r *http.Request) {
 	h.r11Mutate(w, r, "Карточка сотрудника", func(root map[string]json.RawMessage) (map[string]any, string, error) {
+		body, err := r11BodyMap(w, r, 2<<20)
+		if err != nil { return nil, "", err }
 		rows, err := r11Array(root, "employees")
 		if err != nil { return nil, "", err }
-		tab, name := r11StringBody(r, "tab_no"), r11StringBody(r, "full_name")
-		_ = tab; _ = name
-		return h.r11EmployeeSaveBody(root, rows, nil)
+		tab, name := r11String(body, "tab_no"), r11String(body, "full_name")
+		if tab == "" || name == "" { return nil, "", fmt.Errorf("табельный номер и ФИО обязательны") }
+		id := r11Int(body, "id")
+		pos := -1
+		if id > 0 {
+			_, pos = r11FindEmployeeID(rows, id)
+		}
+		if pos < 0 {
+			_, duplicate := r11FindEmployee(rows, tab)
+			if duplicate >= 0 { return nil, "", fmt.Errorf("табельный номер %s уже существует", tab) }
+		} else {
+			for i, other := range rows {
+				if i != pos && strings.EqualFold(r11String(other, "tab_no"), tab) {
+					return nil, "", fmt.Errorf("табельный номер %s уже существует", tab)
+				}
+			}
+		}
+		item := map[string]json.RawMessage{}
+		if pos >= 0 { item = rows[pos] } else { r11Put(item, "id", r11NextID(root)); r11Put(item, "created_at", time.Now().Format(time.RFC3339)) }
+		for _, key := range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes"} {
+			if v := r11Raw(body, key); len(v) > 0 { item[key] = append(json.RawMessage(nil), v...) }
+		}
+		for _, key := range []string{"is_quarter","probation","main_schedule_ready"} {
+			if v := r11Raw(body, key); len(v) > 0 { item[key] = append(json.RawMessage(nil), v...) }
+		}
+		r11Put(item, "updated_at", time.Now().Format(time.RFC3339))
+		if pos >= 0 { rows[pos] = item } else { rows = append(rows, item) }
+		r11SetArray(root, "employees", rows)
+		verb := "создан"
+		if pos >= 0 { verb = "изменён" }
+		return map[string]any{"id": r11Int(item, "id"), "created": pos < 0}, fmt.Sprintf("%s · %s · %s", tab, name, verb), nil
 	})
-}
-
-func r11StringBody(r *http.Request, key string) string { return "" }
-
-// r11EmployeeSaveBody is called by the decoded handler below; keeping payload
-// handling separate makes the uniqueness and update rules easy to test.
-func (h *controller) r11EmployeeSaveBody(root map[string]json.RawMessage, rows []map[string]json.RawMessage, body map[string]json.RawMessage) (map[string]any, string, error) {
-	if body == nil { return nil, "", fmt.Errorf("нет тела запроса") }
-	return nil, "", fmt.Errorf("not implemented")
 }
 
 func (h *controller) r11EmployeeDelete(w http.ResponseWriter, r *http.Request) {
@@ -842,7 +856,8 @@ func (h *controller) r11ColorSave(w http.ResponseWriter, r *http.Request) {
 		body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err};employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
 		emp,_:=r11FindEmployee(employees,r11String(body,"tab_no"));if emp==nil{return nil,"",fmt.Errorf("сотрудник не найден")}
 		a,b,color:=r11String(body,"date_from"),r11String(body,"date_to"),r11String(body,"color");if b==""{b=a};if !r11DateOK(a)||!r11DateOK(b)||b<a{return nil,"",fmt.Errorf("неверный диапазон")}
-		if !map[string]bool{"yellow":true,"green":true,"peach":true,"pink":true,"gray":true}[color]{return nil,"",fmt.Errorf("неизвестный цвет")}
+		validColors:=map[string]bool{"yellow":true,"green":true,"peach":true,"pink":true,"gray":true}
+		if !validColors[color]{return nil,"",fmt.Errorf("неизвестный цвет")}
 		rows,err:=r11Array(root,"manual_colors");if err!=nil{return nil,"",err};id:=r11Int(emp,"id");count:=0
 		for d:=a;d<=b;d=r11DateAdd(d,1){pos:=-1;for i,x:=range rows{if r11Int(x,"employee_id")==id&&r11String(x,"date")==d{pos=i;break}}
 			item:=map[string]json.RawMessage{};if pos>=0{item=rows[pos]}else{r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",id);r11Put(item,"date",d);rows=append(rows,item)}
