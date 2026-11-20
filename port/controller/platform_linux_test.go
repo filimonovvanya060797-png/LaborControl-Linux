@@ -39,3 +39,9 @@ func TestFindCoreURLUsesOnlyOwnListeningSocket(t *testing.T) {
     got, err := findCoreURL(os.Getpid())
     if err != nil || got != actual { t.Fatalf("findCoreURL got=%q want=%q err=%v", got, actual, err) }
 }
+
+func TestLinuxStandaloneMode(t *testing.T) {
+	if !platformStandaloneMode() {
+		t.Fatal("Linux must allow the local R11 state workspace without the native Core binary")
+	}
+}
