@@ -1,0 +1,33 @@
+name: R11 schema exporter — PowerShell syntax
+
+on:
+  push:
+    branches:
+      - feature/r11-core-recovery-20261120
+    paths:
+      - 'tools/export_r11_schema.ps1'
+      - '.github/workflows/r11-schema-exporter-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parse:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate PowerShell syntax
+        shell: powershell
+        run: |
+          $path = (Resolve-Path 'tools/export_r11_schema.ps1').Path
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+          }
+          Write-Host "PowerShell syntax OK: $path"
