@@ -835,13 +835,78 @@ func (h *controller) r11RevisionGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w,item)
 }
 
+// r11RevisionActivate restores the archived employee-specific collections.
+// Updating only the revision status would make a cancelled revision appear
+// active while leaving the later plan in place. It must be an atomic restore.
 func (h *controller) r11RevisionActivate(w http.ResponseWriter, r *http.Request) {
-	h.r11Mutate(w,r,"Статус официальной редакции изменён",func(root map[string]json.RawMessage)(map[string]any,string,error){
-		body,err:=r11BodyMap(w,r,1<<20);if err!=nil{return nil,"",err};rows,err:=r11Array(root,"graph_revisions");if err!=nil{return nil,"",err}
-		id:=r11Int(body,"id");target,_:=r11FindRecordID(rows,id);if target==nil{return nil,"",fmt.Errorf("редакция не найдена")}
-		empID:=r11Int(target,"employee_id");for _,x:=range rows{if r11Int(x,"employee_id")==empID{if r11Int(x,"id")==id{r11Put(x,"status","ACTIVE");r11Put(x,"activated_at",time.Now().Format(time.RFC3339))}else if strings.EqualFold(r11String(x,"status"),"ACTIVE"){r11Put(x,"status","ARCHIVED")}}}
-		r11SetArray(root,"graph_revisions",rows)
-		return map[string]any{"id":id},fmt.Sprintf("Редакция ID %d",id),nil
+	h.r11Mutate(w, r, "Восстановлена официальная редакция графика", func(root map[string]json.RawMessage) (map[string]any, string, error) {
+		body, err := r11BodyMap(w, r, 1<<20)
+		if err != nil { return nil, "", err }
+		revisions, err := r11Array(root, "graph_revisions")
+		if err != nil { return nil, "", err }
+		id := r11Int(body, "id")
+		target, _ := r11FindRecordID(revisions, id)
+		if target == nil { return nil, "", fmt.Errorf("редакция с id=%d не найдена", id) }
+		employeeID := r11Int(target, "employee_id")
+		if employeeID < 1 { return nil, "", fmt.Errorf("у редакции нет сотрудника") }
+		if strings.EqualFold(r11String(target, "status"), "ACTIVE") {
+			return map[string]any{"id":id,"already_active":true},fmt.Sprintf("Редакция ID %d уже действующая",id),nil
+		}
+
+		collections := []struct{ Key, Snapshot string }{
+			{"days","days_snapshot"},
+			{"events","events_snapshot"},
+			{"notes","notes_snapshot"},
+			{"manual_colors","colors_snapshot"},
+		}
+		current := map[string][]map[string]json.RawMessage{}
+		snapshot := map[string][]map[string]json.RawMessage{}
+		for _, col := range collections {
+			rows, e := r11Array(root, col.Key)
+			if e != nil { return nil, "", e }
+			current[col.Key] = rows
+			raw, ok := target[col.Snapshot]
+			if !ok || string(raw) == "null" { return nil, "", fmt.Errorf("у редакции ID %d отсутствует снимок %s; восстановление отменено",id,col.Snapshot) }
+			var snap []map[string]json.RawMessage
+			if e := json.Unmarshal(raw, &snap); e != nil { return nil, "", fmt.Errorf("снимок %s повреждён: %w",col.Snapshot,e) }
+			for _, item := range snap {
+				if r11Int(item,"employee_id")!=employeeID { return nil,"",fmt.Errorf("снимок %s содержит запись другого сотрудника",col.Snapshot) }
+			}
+			if snap==nil { snap=[]map[string]json.RawMessage{} }
+			snapshot[col.Key]=snap
+		}
+		now:=time.Now().Format(time.RFC3339)
+		for _, rev := range revisions {
+			if r11Int(rev,"employee_id")!=employeeID || r11Int(rev,"id")==id { continue }
+			if !strings.EqualFold(r11String(rev,"status"),"ACTIVE") { continue }
+			for _, col := range collections {
+				owned:=[]map[string]json.RawMessage{}
+				for _,item:=range current[col.Key] { if r11Int(item,"employee_id")==employeeID { owned=append(owned,item) } }
+				r11Put(rev,col.Snapshot,owned)
+			}
+			r11Put(rev,"status","ARCHIVED")
+			r11Put(rev,"updated_at",now)
+		}
+		counts:=map[string]int{}
+		for _, col := range collections {
+			kept:=make([]map[string]json.RawMessage,0,len(current[col.Key])+len(snapshot[col.Key]))
+			for _,item:=range current[col.Key] { if r11Int(item,"employee_id")!=employeeID { kept=append(kept,item) } }
+			kept=append(kept,snapshot[col.Key]...)
+			r11SetArray(root,col.Key,kept)
+			counts[col.Key]=len(snapshot[col.Key])
+		}
+		r11Put(target,"status","ACTIVE")
+		r11Put(target,"activated_at",now)
+		r11Put(target,"updated_at",now)
+		r11SetArray(root,"graph_revisions",revisions)
+		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
+		emp,_:=r11FindEmployeeID(employees,employeeID)
+		if emp!=nil {
+			if schedule:=r11String(target,"schedule_type");schedule!=""{r11Put(emp,"schedule_type",schedule)}
+			r11Put(emp,"updated_at",now);r11SetArray(root,"employees",employees)
+		}
+		return map[string]any{"id":id,"employee_id":employeeID,"restored":counts},
+			fmt.Sprintf("ID %d · сотрудник %d · восстановлено дней %d",id,employeeID,counts["days"]),nil
 	})
 }
 
