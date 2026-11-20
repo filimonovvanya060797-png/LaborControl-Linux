@@ -42,13 +42,13 @@ foreach ($property in $response.data.PSObject.Properties) {
                 foreach ($field in $item.PSObject.Properties) {
                     $fields += [ordered]@{
                         name = $field.Name
-                        type = Get-JsonType $field.Value
+                        type = (Get-JsonType $field.Value)
                     }
                 }
                 $sampleShapes += [ordered]@{ item_type = 'object'; fields = $fields }
             } else {
                 $sampleShapes += [ordered]@{
-                    item_type = Get-JsonType $item
+                    item_type = (Get-JsonType $item)
                     fields = @()
                 }
             }
@@ -68,7 +68,7 @@ foreach ($property in $response.data.PSObject.Properties) {
         }
         $dataShape[$property.Name] = [ordered]@{ type = 'object'; fields = $fields }
     } else {
-        $dataShape[$property.Name] = [ordered]@{ type = Get-JsonType $value }
+        $dataShape[$property.Name] = [ordered]@{ type = (Get-JsonType $value) }
     }
 }
 
@@ -83,7 +83,7 @@ $report = [ordered]@{
     endpoint = $uri
     response_fields = @($response.PSObject.Properties.Name)
     data_shape = $dataShape
-    discrepancies_type = Get-JsonType $response.discrepancies
+    discrepancies_type = (Get-JsonType $response.discrepancies)
     discrepancies_count = $discrepancyCount
 }
 
