@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -16,6 +18,9 @@ import (
 )
 
 const r11StateCompatVersion = "R11-LINUX-STATE-COMPAT/0.1"
+
+//go:embed r11_state.html
+var r11StateHTML []byte
 
 var r11RequiredDataKeys = []string{
 	"calendar", "days", "employee_flights", "employees", "events",
