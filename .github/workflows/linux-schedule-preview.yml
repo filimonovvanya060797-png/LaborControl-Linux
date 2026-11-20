@@ -1,0 +1,60 @@
+name: LaborControl — Linux schedule preview
+
+on:
+  pull_request:
+    paths:
+      - "port/schedules-preview/**"
+      - ".github/workflows/linux-schedule-preview.yml"
+  push:
+    branches:
+      - "feature/alt-schedule-first-screen-20261120"
+    paths:
+      - "port/schedules-preview/**"
+      - ".github/workflows/linux-schedule-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build:
+    name: Test and package Linux preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: port/schedules-preview
+    steps:
+      - name: Checkout without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: port/schedules-preview/go.mod
+          cache: false
+      - name: Unit and API tests
+        env:
+          CGO_ENABLED: "0"
+        run: go test -count=1 ./...
+      - name: Static analysis
+        env:
+          CGO_ENABLED: "0"
+        run: go vet ./...
+      - name: Build x86-64 Linux binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p dist
+          go build -trimpath -o dist/laborcontrol-schedules-preview .
+          test -s dist/laborcontrol-schedules-preview
+      - name: Publish Linux preview binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: laborcontrol-schedules-preview-linux-amd64
+          path: port/schedules-preview/dist/laborcontrol-schedules-preview
+          if-no-files-found: error
+          retention-days: 7
