@@ -395,7 +395,7 @@ func (h *controller) r11UpdateDays(w http.ResponseWriter, r *http.Request) {
 			values := map[string]any{
 				"id": nextID, "employee_id": item.EmployeeID, "date": item.Date,
 				"plan": *item.Plan, "plan_hours": *item.PlanHours,
-				"fact": "", "fact_hours": 0, "shift": "", "state": "", "comment": "",
+				"fact": "", "fact_hours": 0, "shift": "", "state": "", "comment": "", "updated_at": "",
 			}
 			for name, value := range values {
 				day[name], _ = json.Marshal(value)
