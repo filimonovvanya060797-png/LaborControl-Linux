@@ -29,7 +29,9 @@ jobs:
           $response = Invoke-RestMethod -Uri $uri -Headers @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'LaborControl-schema-exporter'; Authorization = "Bearer $env:GITHUB_TOKEN" }
           $downloaded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(($response.content -replace '\s', '')))
           $local = Get-Content -LiteralPath 'tools/export_r11_schema.ps1' -Raw
-          if ($downloaded -ne $local) { throw 'GitHub API download differs from checked-out script.' }
+          $downloaded = ($downloaded -replace "`r`n", "`n").TrimEnd()
+          $local = ($local -replace "`r`n", "`n").TrimEnd()
+          if ($downloaded -ne $local) { throw 'GitHub API download differs from checked-out script after newline normalization.' }
           Write-Host 'GitHub API download OK; script content matches repository.'
       - name: Validate PowerShell syntax
         shell: powershell
