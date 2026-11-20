@@ -1,0 +1,35 @@
+# Ручной безопасный smoke-тест для выделенного runner ALT Linux.
+# Пока только workflow_dispatch: не запускать автоматически на каждом push,
+# пока не настроены изоляция, ограниченные права и безопасная рабочая папка.
+name: ALT Linux runner — безопасная проверка
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  alt-environment:
+    runs-on: [self-hosted, linux, x64, alt-laborcontrol]
+    timeout-minutes: 10
+    steps:
+      - name: Версия ОС
+        shell: bash
+        run: |
+          set -eu
+          cat /etc/os-release
+          uname -m
+      - name: Инструменты
+        shell: bash
+        run: |
+          set -eu
+          command -v git
+          git --version
+          command -v go
+          go env GOVERSION
+      - name: Ограничения тестового стенда
+        shell: bash
+        run: |
+          set -eu
+          test "$(id -u)" -ne 0
+          test -n "$RUNNER_TEMP"
+          test -d "$RUNNER_TEMP"
+          printf 'Runner is not root; temporary folder exists.\n'
