@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -408,18 +407,6 @@ func (h *controller) r11UpdateDays(w http.ResponseWriter, r *http.Request) {
 		employeeSet[item.EmployeeID] = true
 	}
 
-	sort.SliceStable(days, func(i, j int) bool {
-		var leftID, rightID int64
-		var leftDate, rightDate string
-		_ = json.Unmarshal(days[i]["employee_id"], &leftID)
-		_ = json.Unmarshal(days[j]["employee_id"], &rightID)
-		_ = json.Unmarshal(days[i]["date"], &leftDate)
-		_ = json.Unmarshal(days[j]["date"], &rightDate)
-		if leftID != rightID {
-			return leftID < rightID
-		}
-		return leftDate < rightDate
-	})
 	root["days"], _ = json.Marshal(days)
 	if created > 0 {
 		root["next_id"], _ = json.Marshal(nextID)
