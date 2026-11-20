@@ -166,8 +166,9 @@ LaborControl — локальная рабочая система техника
 - `PRETTY_NAME="ALT Workstation K 11.4 (Nemorosa)"`
 - `VERSION_ID=11.4`, `ALT_BRANCH_ID=p11`, `VARIANT="Workstation K"`
 - Рабочая система установлена в VirtualBox; общая папка Windows ↔ Альт Linux уже настроена.
-- Проверено в терминале Альт Linux: `go version` → `bash: go: команда не найдена`; `git --version` → `bash: git: команда не найдена`. Ни Go, ни Git пока не доступны в PATH.
-- Следующий шаг: войти администратором через `su -`, обновить индекс пакетов `apt-get update`, установить `golang` и `git-core` через `apt-get install golang git-core`, затем выйти из root через `exit` и проверить `go version`, `git --version`.
+- Первоначально Go и Git отсутствовали; после `apt-get update` выполнена установка `apt-get install golang git-core` из официального p11.
+- Скриншот установки: `golang 1.27.4-alt1` и `git-core 2.50.1-alt1` установлены; после выхода из root `git --version` → `git version 2.50.1`. Однако `go version` → `go version: unknown command` / `Run 'go help' for usage.` Это не нормальный вывод версии Go; нужно выяснить, какой исполняемый файл вызывается, и проверить окружение до сборки.
+- Следующий шаг: диагностика Go без root: `type -a go`, `command -v go`, `go help`, `rpm -q golang git-core`. Не переустанавливать пакеты до выяснения причины. Затем клонировать GitHub-репозиторий и готовить тестовую сборку.
 - Настройка тестового агента и запуск тестов на виртуальной машине не производились.
 
 ## 9. Как обновлять документ
