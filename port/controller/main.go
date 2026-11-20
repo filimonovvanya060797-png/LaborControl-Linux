@@ -78,7 +78,7 @@ func main() {
 	// listening on 8767, stop it first so a newly launched ZIP cannot silently
 	// fall back to yesterday's controller/frontend.
 	if v, err := existingControllerVersion(); err == nil && v != "" {
-		if v == controllerVersion || v == r11StateCompatVersion {
+		if v == r11StateCompatVersion || (v == controllerVersion && !platformStandaloneMode()) {
 			if u, e := requestExistingStart(); e == nil && u != "" {
 				if e = openURL(u); e != nil {
 					showMessage("LaborControl", "Программа уже запущена, но не удалось открыть браузер: "+e.Error())
