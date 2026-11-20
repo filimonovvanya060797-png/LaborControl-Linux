@@ -109,7 +109,7 @@ func (h *controller) serveFullR11UI(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	page := bytes.ReplaceAll(frontendHTML, []byte("state.version='v1.0 TIMESHEET R9'"), []byte("state.version='R11 Linux Core'"))
+	page := bytes.ReplaceAll(r11OriginalHTML, []byte("state.version='v0.9.11'"), []byte("state.version=state.version||'R11 Linux Core'"))
 	page = bytes.ReplaceAll(page, []byte("техника по труду · Табель R6"), []byte("техника по труду · Linux R11"))
 	page = bytes.ReplaceAll(page, []byte(`<div id="page"></div>`), []byte(r11WindowsImportPanel+`<div id="page"></div>`))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
