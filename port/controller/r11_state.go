@@ -239,7 +239,7 @@ func emptyR11DataJSON() []byte {
 		"rvd": [],
 		"schedule_changes": [],
 		"schedule_types": [],
-		"schema_version": 0
+		"schema_version": 8
 	}`)
 }
 
