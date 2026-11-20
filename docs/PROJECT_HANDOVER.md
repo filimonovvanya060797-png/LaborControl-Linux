@@ -209,3 +209,6 @@ LaborControl — локальная рабочая система техника
 
 
 **20.11.2026 — SSH-ключ создан.** На ALT Linux в VirtualBox команда `ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519_laborcontrol_github" -C "LaborControl-Linux"` завершилась успешно. Созданы закрытый `~/.ssh/id_ed25519_laborcontrol_github` и публичный `~/.ssh/id_ed25519_laborcontrol_github.pub` ключи. Парольная фраза не известна и не требуется помощнику. Следующий шаг — добавить **только публичный ключ** в GitHub → Settings → Deploy keys с отключённым `Allow write access`. Добавление и проверка соединения ещё не подтверждены. Приватный ключ нельзя публиковать, отправлять в чат или загружать в репозиторий.
+
+
+**20.11.2026 — deploy key GitHub.** По скриншоту GitHub Settings → Deploy keys для закрытого `filimonovvanya060797-png/LaborControl-Linux` добавлен ключ `ALT Linux VirtualBox` с пометкой «Только для чтения»; отпечаток ключа совпадает с ранее показанным `ssh-keygen`. Само SSH-соединение с GitHub и клонирование на Альт Linux ещё не проверялись. Следующий шаг: `ssh -i "$HOME/.ssh/id_ed25519_laborcontrol_github" -o IdentitiesOnly=yes -T git@github.com` с проверкой отпечатка сервера при первом подключении; затем клонировать репозиторий используя тот же ключ.
