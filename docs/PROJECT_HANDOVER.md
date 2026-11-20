@@ -228,3 +228,6 @@ LaborControl — локальная рабочая система техника
 - GitHub коммит: `26f9ca9d8b91635ae34eab0568c38c6d16e6ee8d` (16 файлов). Создан workflow `.github/workflows/linux-controller.yml` с `CGO_ENABLED=0`, автоматическим запуском на push/PR и ручным запуском.
 - Исходников современного Core v0.9.11/R11 нет. Контроллер R9 сам по себе не является полностью работоспособным LaborControl R11. Нельзя выдавать текущую компиляцию за успешный перенос всей программы.
 - **Следующий шаг:** проверить итог первого GitHub Actions run и затем организовать self-hosted runner в VirtualBox, используя только тестовые данные и минимальные разрешения. Для запуска runner в виртуальной машине требуется разовая настройка пользователем или другой разрешённый способ локального доступа.
+
+
+**20.11.2026 — автоматическая сборка GitHub Actions успешна.** Первый запуск workflow `Linux controller bootstrap` (run `44724624687`) по коммиту `26f9ca9d8b91635ae34eab0568c38c6d16e6ee8d` завершился со статусом `completed / success`. Проверены Go unit tests и сборка контроллера с `CGO_ENABLED=0` на GitHub-hosted Ubuntu runner. Ссылка: https://github.com/filimonovvanya060797-png/LaborControl-Linux/actions/runs/44724624687 . Это не проверка в пользовательском ALT Linux 11.4 и не проверка отсутствующего Core R11.
