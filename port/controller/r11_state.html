@@ -138,12 +138,16 @@ function editDay(emp,date,saved,change){
   pending.set(key,{employee_id:Number(emp.id),date,plan,plan_hours:hours});
   render();
 }
+async function responseJSON(response){
+  const raw=await response.text();
+  try{return JSON.parse(raw)}catch(_){throw new Error(raw||("HTTP "+response.status))}
+}
 async function saveChanges(){
   const days=Array.from(pending.values());if(!days.length)return;
   $("save").disabled=true;
   try{
     const response=await fetch("/api/state/days",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({days})});
-    const result=await response.json();
+    const result=await responseJSON(response);
     if(!response.ok)throw new Error(result.error||"HTTP "+response.status);
     pending.clear();await loadState();
     notify("Сохранено. Новых дней: "+result.created+"; обновлено: "+result.updated+". Резервная копия: "+(result.backup||"не требовалась"),"success");
