@@ -59,6 +59,12 @@ jobs:
           go build -trimpath -o "$RUNNER_TEMP/laborcontrol-controller" .
           test -x "$RUNNER_TEMP/laborcontrol-controller"
           ls -lh "$RUNNER_TEMP/laborcontrol-controller"
+      - name: Smoke test real Linux process (isolated synthetic database)
+        working-directory: port/controller
+        shell: bash
+        run: |
+          bash -n tests/smoke_linux.sh
+          bash tests/smoke_linux.sh "$RUNNER_TEMP/laborcontrol-controller"
       - name: Verify Windows cross-compile
         working-directory: port/controller
         env:
