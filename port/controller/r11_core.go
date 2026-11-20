@@ -490,6 +490,10 @@ func (h *controller) r11EmployeeDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *controller) r11DaySave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
 	body, err := r11BodyMap(w, r, 8<<20)
 	if err != nil { r11WriteError(w,400,err); return }
 	quick := r.URL.Path == "/api/day/quick-save"
