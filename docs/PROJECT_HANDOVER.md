@@ -206,3 +206,6 @@ LaborControl — локальная рабочая система техника
 
 
 **20.11.2026 — проверка SSH в ALT Linux.** По скриншоту `ssh -V` → `OpenSSH_9.6p1`, `OpenSSL 3.3.3 11 Feb 2025`. Каталог `~/.ssh` существует, видны `authorized_keys` и `config`; отдельный GitHub-ключ среди показанных файлов отсутствует. Следующий шаг: создать отдельную пару Ed25519 `~/.ssh/id_ed25519_laborcontrol_github` и `.pub` командой `ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519_laborcontrol_github" -C "LaborControl-Linux"`, не перезаписывая существующие файлы. Затем добавить публичный ключ как read-only deploy key в закрытый репозиторий и проверить подключение. Закрытый ключ никуда не пересылать.
+
+
+**20.11.2026 — SSH-ключ создан.** На ALT Linux в VirtualBox команда `ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519_laborcontrol_github" -C "LaborControl-Linux"` завершилась успешно. Созданы закрытый `~/.ssh/id_ed25519_laborcontrol_github` и публичный `~/.ssh/id_ed25519_laborcontrol_github.pub` ключи. Парольная фраза не известна и не требуется помощнику. Следующий шаг — добавить **только публичный ключ** в GitHub → Settings → Deploy keys с отключённым `Allow write access`. Добавление и проверка соединения ещё не подтверждены. Приватный ключ нельзя публиковать, отправлять в чат или загружать в репозиторий.
