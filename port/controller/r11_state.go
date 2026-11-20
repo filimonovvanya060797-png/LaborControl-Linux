@@ -48,10 +48,10 @@ func (h *controller) runStandaloneR11() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", h.wrap(h.health))
 	mux.HandleFunc("/start", h.wrap(h.standaloneStart))
-	mux.HandleFunc("/api/state", h.wrap(h.r11State))
 	mux.HandleFunc("/api/state/import", h.wrap(h.r11ImportState))
 	mux.HandleFunc("/api/state/days", h.wrap(h.r11UpdateDays))
-	mux.HandleFunc("/api/shutdown", h.wrap(h.shutdownAll))
+	h.registerTab2(mux)
+	mux.HandleFunc("/api/", h.wrap(h.r11CoreAPI))
 	mux.HandleFunc("/r11", h.serveR11UI)
 	mux.HandleFunc("/", h.serveR11UI)
 
@@ -67,7 +67,7 @@ func (h *controller) runStandaloneR11() error {
 	}()
 
 	uiURL := "http://" + listenAddr + "/r11"
-	log.Printf("%s started in local state mode; database=%s; UI=%s", r11StateCompatVersion, h.mainDBPath(), uiURL)
+	log.Printf("%s started in native Linux Core mode; database=%s; UI=%s", r11CoreVersion, h.mainDBPath(), uiURL)
 	if err := openURL(uiURL); err != nil {
 		showMessage("LaborControl", "Локальный редактор запущен. Откройте в браузере: "+uiURL)
 	}
@@ -83,13 +83,7 @@ func (h *controller) standaloneStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *controller) serveR11UI(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" && r.URL.Path != "/r11" {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(r11StateHTML)
+	h.serveFullR11UI(w, r)
 }
 
 func (h *controller) r11State(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +211,7 @@ func (h *controller) readR11DataLocked() ([]byte, error) {
 			case "next_id":
 				root[key] = json.RawMessage("1")
 			case "schema_version":
-				root[key] = json.RawMessage("0")
+				root[key] = json.RawMessage("8")
 			default:
 				root[key] = json.RawMessage("[]")
 			}
@@ -245,7 +239,7 @@ func emptyR11DataJSON() []byte {
 		"rvd": [],
 		"schedule_changes": [],
 		"schedule_types": [],
-		"schema_version": 0
+		"schema_version": 8
 	}`)
 }
 

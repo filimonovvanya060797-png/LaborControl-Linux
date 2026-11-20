@@ -175,6 +175,9 @@ func tab2Alloc(s *tab2Store) int {
 
 func (h *controller) loadMainDB() (mainDB, error) {
 	b, err := os.ReadFile(h.mainDBPath())
+	if os.IsNotExist(err) {
+		b, err = h.readR11DataLocked()
+	}
 	if err != nil {
 		return mainDB{}, err
 	}

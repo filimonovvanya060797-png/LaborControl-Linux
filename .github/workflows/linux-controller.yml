@@ -1,3 +1,5 @@
+# Tests run on GitHub-hosted Ubuntu even if the ALT VM self-hosted runner
+# is offline. This job never opens the user's real database.
 name: Linux controller bootstrap
 on:
   push:
@@ -9,26 +11,73 @@ on:
       - 'port/controller/**'
       - '.github/workflows/linux-controller.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: linux-controller-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go-linux:
+    name: Linux native R11 Core tests and build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version-file: port/controller/go.mod
           cache: false
-      - name: Compile and run Go unit tests (no C compiler required)
+      - name: Unit and API regression tests
         working-directory: port/controller
         env:
           CGO_ENABLED: '0'
-        run: go test ./...
-      - name: Build Linux controller (Core not included)
+        run: go test -count=1 ./...
+      - name: Static checks
         working-directory: port/controller
         env:
           CGO_ENABLED: '0'
-        run: go build -o /tmp/laborcontrol-controller .
+        run: go vet ./...
+      - name: Race detector tests
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race -count=1 ./...
+      - name: Build native Linux executable
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/laborcontrol-controller" .
+          test -x "$RUNNER_TEMP/laborcontrol-controller"
+          ls -lh "$RUNNER_TEMP/laborcontrol-controller"
+      - name: Smoke test real Linux process (isolated synthetic database)
+        working-directory: port/controller
+        shell: bash
+        run: |
+          bash -n tests/smoke_linux.sh
+          bash tests/smoke_linux.sh "$RUNNER_TEMP/laborcontrol-controller"
+      - name: Verify Windows cross-compile
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/laborcontrol-controller.exe" .
+          test -s "$RUNNER_TEMP/laborcontrol-controller.exe"
+      - name: Publish experimental Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: laborcontrol-r11-native-linux-amd64-experimental
+          path: ${{ runner.temp }}/laborcontrol-controller
+          if-no-files-found: error
+          retention-days: 14
