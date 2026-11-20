@@ -211,7 +211,7 @@ func (h *controller) readR11DataLocked() ([]byte, error) {
 			case "next_id":
 				root[key] = json.RawMessage("1")
 			case "schema_version":
-				root[key] = json.RawMessage("0")
+				root[key] = json.RawMessage("8")
 			default:
 				root[key] = json.RawMessage("[]")
 			}
