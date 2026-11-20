@@ -143,7 +143,7 @@ func (h *controller) r11ImportState(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"ok": true, "employees": counts.Employees, "days": counts.Days,
-		"backup": filepath.Base(backup),
+		"backup": r11BackupLabel(backup),
 	})
 }
 
@@ -458,7 +458,7 @@ func (h *controller) r11UpdateDays(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"ok": true, "created": created, "updated": updated,
-		"employees": len(employeeSet), "backup": filepath.Base(backup),
+		"employees": len(employeeSet), "backup": r11BackupLabel(backup),
 	})
 }
 
@@ -487,4 +487,11 @@ func (h *controller) backupR11StateLocked() (string, error) {
 
 func r11DayKey(employeeID int64, date string) string {
 	return strconv.FormatInt(employeeID, 10) + "|" + date
+}
+
+func r11BackupLabel(path string) string {
+	if path == "" {
+		return ""
+	}
+	return filepath.Base(path)
 }
