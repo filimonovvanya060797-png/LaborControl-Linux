@@ -742,15 +742,55 @@ func (h *controller) r11VersionCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *controller) r11VersionRestore(w http.ResponseWriter, r *http.Request) {
-	h.r11Mutate(w,r,"Контрольная версия графика восстановлена",func(root map[string]json.RawMessage)(map[string]any,string,error){
-		body,err:=r11BodyMap(w,r,1<<20);if err!=nil{return nil,"",err}
-		versions,err:=r11Array(root,"graph_versions");if err!=nil{return nil,"",err};v,_:=r11FindRecordID(versions,r11Int(body,"id"));if v==nil{return nil,"",fmt.Errorf("версия не найдена")}
-		employeeID,year:=r11Int(v,"employee_id"),int(r11Int(v,"year"));var snapshot []map[string]json.RawMessage
-		if err:=json.Unmarshal(v["days"],&snapshot);err!=nil{return nil,"",fmt.Errorf("снимок дней повреждён: %w",err)}
-		days,err:=r11Array(root,"days");if err!=nil{return nil,"",err};prefix:=fmt.Sprintf("%04d-",year);kept:=days[:0]
-		for _,d:=range days{if r11Int(d,"employee_id")==employeeID&&strings.HasPrefix(r11String(d,"date"),prefix){continue};kept=append(kept,d)}
-		kept=append(kept,snapshot...);r11SetArray(root,"days",kept)
-		return map[string]any{"id":r11Int(v,"id"),"restored":len(snapshot)},fmt.Sprintf("ID %d · %d дней",r11Int(v,"id"),len(snapshot)),nil
+	h.r11Mutate(w, r, "Контрольная версия графика восстановлена", func(root map[string]json.RawMessage) (map[string]any, string, error) {
+		body, err := r11BodyMap(w, r, 1<<20)
+		if err != nil { return nil, "", err }
+		versions, err := r11Array(root, "graph_versions")
+		if err != nil { return nil, "", err }
+		v, _ := r11FindRecordID(versions, r11Int(body, "id"))
+		if v == nil { return nil, "", fmt.Errorf("версия не найдена") }
+		employeeID, year := r11Int(v, "employee_id"), int(r11Int(v, "year"))
+		if employeeID < 1 || year < 2000 || year > 2100 {
+			return nil, "", fmt.Errorf("у версии неверный сотрудник или год")
+		}
+		raw, exists := v["days"]
+		if !exists || len(raw) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+			return nil, "", fmt.Errorf("у версии отсутствует снимок дней; восстановление отменено")
+		}
+		var snapshot []map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot == nil {
+			return nil, "", fmt.Errorf("снимок дней повреждён или не является массивом: %v", err)
+		}
+		prefix := fmt.Sprintf("%04d-", year)
+		seenDates := map[string]bool{}
+		seenIDs := map[int64]bool{}
+		for _, d := range snapshot {
+			date, id := r11String(d, "date"), r11Int(d, "id")
+			if r11Int(d, "employee_id") != employeeID || !r11DateOK(date) || !strings.HasPrefix(date, prefix) {
+				return nil, "", fmt.Errorf("снимок содержит день другого сотрудника или года")
+			}
+			if id < 1 || seenDates[date] || seenIDs[id] {
+				return nil, "", fmt.Errorf("снимок содержит отсутствующий ID или повторяющийся день")
+			}
+			seenDates[date], seenIDs[id] = true, true
+		}
+		days, err := r11Array(root, "days")
+		if err != nil { return nil, "", err }
+		kept := make([]map[string]json.RawMessage, 0, len(days)+len(snapshot))
+		keptIDs := map[int64]bool{}
+		for _, d := range days {
+			if r11Int(d, "employee_id") == employeeID && strings.HasPrefix(r11String(d, "date"), prefix) { continue }
+			kept = append(kept, d)
+			if id := r11Int(d, "id"); id > 0 { keptIDs[id] = true }
+		}
+		for _, d := range snapshot {
+			if keptIDs[r11Int(d, "id")] {
+				return nil, "", fmt.Errorf("ID дня из снимка занят другой записью; восстановление отменено")
+			}
+		}
+		kept = append(kept, snapshot...)
+		r11SetArray(root, "days", kept)
+		return map[string]any{"id": r11Int(v, "id"), "restored": len(snapshot)}, fmt.Sprintf("ID %d · %d дней", r11Int(v, "id"), len(snapshot)), nil
 	})
 }
 
@@ -1052,7 +1092,7 @@ func (h *controller) r11CSVImport(w http.ResponseWriter, r *http.Request, events
 	days,err:=r11Array(root,"days");if err!=nil{http.Error(w,err.Error(),500);return}
 	events,err:=r11Array(root,"events");if err!=nil{http.Error(w,err.Error(),500);return}
 	applied:=0
-	for _,row:=range rows[1:]{
+	for rowIndex,row:=range rows[1:]{
 		emp,_:=r11FindEmployee(employees,get(row,"tab_no"));if emp==nil{continue}
 		if eventsOnly {
 			a:=r11NormalizeDate(get(row,"date_from"));if a==""{a=r11NormalizeDate(get(row,"date"))}
@@ -1062,7 +1102,14 @@ func (h *controller) r11CSVImport(w http.ResponseWriter, r *http.Request, events
 			date:=r11NormalizeDate(get(row,"date"));if !r11DateOK(date){continue};pos:=-1
 			for i,d:=range days{if r11Int(d,"employee_id")==r11Int(emp,"id")&&r11String(d,"date")==date{pos=i;break}}
 			item:=map[string]json.RawMessage{};if pos>=0{item=days[pos]}else{r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date",date)}
-			r11Put(item,"fact",get(row,"value"));if v:=get(row,"hours");v!=""{n,_:=strconv.ParseFloat(strings.ReplaceAll(v,",","."),64);r11Put(item,"fact_hours",n)};if v:=get(row,"shift");v!=""{r11Put(item,"shift",v)}
+			r11Put(item,"fact",get(row,"value"));if v:=strings.TrimSpace(get(row,"hours"));v!=""{
+				n,parseErr:=strconv.ParseFloat(strings.ReplaceAll(v,",","."),64)
+				if parseErr!=nil||math.IsNaN(n)||math.IsInf(n,0){
+					http.Error(w,fmt.Sprintf("Некорректные часы в строке %d: %q",rowIndex+2,v),http.StatusBadRequest)
+					return
+				}
+				r11Put(item,"fact_hours",n)
+			};if v:=get(row,"shift");v!=""{r11Put(item,"shift",v)}
 			if pos>=0{days[pos]=item}else{days=append(days,item)};applied++
 		}
 	}
