@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -891,33 +890,65 @@ func (h *controller) r11ImportEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *controller) r11CSVImport(w http.ResponseWriter, r *http.Request, eventsOnly bool) {
-	if r.Method!=http.MethodPost{http.Error(w,"POST only",405);return}
+	if r.Method != http.MethodPost { http.Error(w,"POST only",405); return }
 	if err:=r.ParseMultipartForm(32<<20);err!=nil{http.Error(w,err.Error(),400);return}
 	file,header,err:=r.FormFile("file");if err!=nil{http.Error(w,err.Error(),400);return};defer file.Close()
-	reader:=csv.NewReader(file);reader.FieldsPerRecord=-1;reader.LazyQuotes=true
-	rows,err:=reader.ReadAll();if err!=nil{http.Error(w,err.Error(),400);return};if len(rows)<2{http.Error(w,"CSV пуст",400);return}
-	head:=map[string]int{};for i,x:=range rows[0]{head[strings.ToLower(strings.TrimSpace(x))]=i}
-	get:=func(row []string,k string)string{i,ok:=head[k];if !ok||i>=len(row){return ""};return strings.TrimSpace(row[i])}
-	h.opMu.Lock();defer h.opMu.Unlock();root,err:=h.r11LoadRootLocked();if err!=nil{http.Error(w,err.Error(),500);return}
+	raw,err:=io.ReadAll(io.LimitReader(file,32<<20));if err!=nil{http.Error(w,err.Error(),400);return}
+	rows,err:=r11ReadCSV(raw);if err!=nil{http.Error(w,err.Error(),400);return};rows=filterNonEmptyRows(rows);if len(rows)<2{http.Error(w,"CSV пуст",400);return}
+	headers:=rows[0]
+	get:=func(row []string,k string)string{
+		aliases:=map[string][]string{
+			"tab_no":{"tab_no","tabno","табельный номер","табельный","таб №"},
+			"date":{"date","дата"},
+			"date_from":{"date_from","дата с","начало периода","дата начала"},
+			"date_to":{"date_to","дата по","окончание периода","дата окончания"},
+			"value":{"value","факт","значение","код факта"},
+			"hours":{"hours","часы","факт часы","количество часов"},
+			"shift":{"shift","смена"},
+			"event_type":{"event_type","вид события","тип события","событие"},
+			"source_code":{"source_code","код события","код"},
+			"source":{"source","источник"},
+			"note":{"note","примечание","комментарий"},
+		}
+		return r11Cell(row,r11HeaderIndex(headers,aliases[k]...))
+	}
+	if r11HeaderIndex(headers,"tab_no","tabno","табельный номер","табельный","таб №")<0 {http.Error(w,"Не найдена колонка табельного номера",400);return}
+	if eventsOnly {
+		if r11HeaderIndex(headers,"date_from","дата с","начало периода","дата начала","date","дата")<0 || r11HeaderIndex(headers,"event_type","вид события","тип события","событие")<0 {http.Error(w,"Для импорта событий нужны дата и вид события",400);return}
+	} else if r11HeaderIndex(headers,"date","дата")<0 || r11HeaderIndex(headers,"value","факт","значение","код факта")<0 {http.Error(w,"Для импорта факта нужны дата и значение факта",400);return}
+	h.opMu.Lock();defer h.opMu.Unlock()
+	root,err:=h.r11LoadRootLocked();if err!=nil{http.Error(w,err.Error(),500);return}
 	employees,err:=r11Array(root,"employees");if err!=nil{http.Error(w,err.Error(),500);return}
 	days,err:=r11Array(root,"days");if err!=nil{http.Error(w,err.Error(),500);return}
 	events,err:=r11Array(root,"events");if err!=nil{http.Error(w,err.Error(),500);return}
 	applied:=0
-	for _,row:=range rows[1:]{emp,_:=r11FindEmployee(employees,get(row,"tab_no"));if emp==nil{continue}
-		if eventsOnly{
-			a,b:=get(row,"date_from"),get(row,"date_to");if b==""{b=a};if !r11DateOK(a)||!r11DateOK(b)||b<a{continue}
+	for _,row:=range rows[1:]{
+		emp,_:=r11FindEmployee(employees,get(row,"tab_no"));if emp==nil{continue}
+		if eventsOnly {
+			a:=r11NormalizeDate(get(row,"date_from"));if a==""{a=r11NormalizeDate(get(row,"date"))}
+			b:=r11NormalizeDate(get(row,"date_to"));if b==""{b=a};if !r11DateOK(a)||!r11DateOK(b)||b<a{continue}
 			item:=map[string]json.RawMessage{};r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date_from",a);r11Put(item,"date_to",b);r11Put(item,"event_type",get(row,"event_type"));r11Put(item,"source_code",get(row,"source_code"));r11Put(item,"source",get(row,"source"));r11Put(item,"note",get(row,"note"));r11Put(item,"created_at",time.Now().Format(time.RFC3339));events=append(events,item);applied++
-		}else{
-			date:=get(row,"date");if !r11DateOK(date){continue};pos:=-1;for i,d:=range days{if r11Int(d,"employee_id")==r11Int(emp,"id")&&r11String(d,"date")==date{pos=i;break}}
+		} else {
+			date:=r11NormalizeDate(get(row,"date"));if !r11DateOK(date){continue};pos:=-1
+			for i,d:=range days{if r11Int(d,"employee_id")==r11Int(emp,"id")&&r11String(d,"date")==date{pos=i;break}}
 			item:=map[string]json.RawMessage{};if pos>=0{item=days[pos]}else{r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date",date)}
-			r11Put(item,"fact",get(row,"value"));if _,ok:=head["hours"];ok{v,_:=strconv.ParseFloat(strings.ReplaceAll(get(row,"hours"),",","."),64);r11Put(item,"fact_hours",v)};if _,ok:=head["shift"];ok{r11Put(item,"shift",get(row,"shift"))}
+			r11Put(item,"fact",get(row,"value"));if v:=get(row,"hours");v!=""{n,_:=strconv.ParseFloat(strings.ReplaceAll(v,",","."),64);r11Put(item,"fact_hours",n)};if v:=get(row,"shift");v!=""{r11Put(item,"shift",v)}
 			if pos>=0{days[pos]=item}else{days=append(days,item)};applied++
 		}
 	}
 	if eventsOnly{r11SetArray(root,"events",events)}else{r11SetArray(root,"days",days)}
-	backup,err:=h.r11SaveRootLocked(root,func()string{if eventsOnly{return "Импорт событий"};return "Импорт факта"}(),fmt.Sprintf("%s · строк %d · применено %d",filepath.Base(header.Filename),len(rows)-1,applied))
+	skipped:=len(rows)-1-applied
+	kind,operation:="FACT","Импорт факта";if eventsOnly{kind="EVENTS";operation="Импорт событий"}
+	if err:=r11AppendImportHistory(root,kind,filepath.Base(header.Filename),len(rows)-1,applied,skipped,"");err!=nil{http.Error(w,err.Error(),500);return}
+	backup,err:=h.r11SaveRootLocked(root,operation,fmt.Sprintf("%s · строк %d · применено %d · пропущено %d",filepath.Base(header.Filename),len(rows)-1,applied,skipped))
 	if err!=nil{http.Error(w,err.Error(),500);return}
-	writeJSON(w,map[string]any{"ok":true,"count":applied,"applied":applied,"rows":len(rows)-1,"backup":r11BackupLabel(backup)})
+	writeJSON(w,map[string]any{"ok":true,"count":applied,"applied":applied,"skipped":skipped,"rows":len(rows)-1,"backup":r11BackupLabel(backup)})
+}
+
+func r11AppendImportHistory(root map[string]json.RawMessage,kind,fileName string,rows,applied,skipped int,message string) error {
+	items,err:=r11Array(root,"import_history");if err!=nil{return err}
+	item:=map[string]json.RawMessage{};r11Put(item,"id",r11NextID(root));r11Put(item,"kind",kind);r11Put(item,"file_name",fileName);r11Put(item,"imported_at",time.Now().Format(time.RFC3339));r11Put(item,"rows",rows);r11Put(item,"applied",applied);r11Put(item,"skipped",skipped);r11Put(item,"message",message)
+	items=append(items,item);r11SetArray(root,"import_history",items);return nil
 }
 
 func r11HeaderIndex(headers []string, aliases ...string) int {
