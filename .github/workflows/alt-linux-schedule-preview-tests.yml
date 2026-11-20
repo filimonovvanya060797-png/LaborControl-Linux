@@ -1,0 +1,63 @@
+# Проверка демонстрационного экрана графиков непосредственно на ALT Linux.
+# Нет доступа к рабочим базам; нет запуска приложения на фиксированном порту 8788.
+name: ALT Linux — schedule preview tests
+
+on:
+  push:
+    branches:
+      - feature/alt-schedule-first-screen-20261120
+    paths:
+      - 'port/schedules-preview/**'
+      - '.github/workflows/alt-linux-schedule-preview-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-on-alt:
+    name: Demo schedules — tests and build on ALT
+    runs-on: [self-hosted, linux, x64, alt-laborcontrol]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: bash
+        working-directory: port/schedules-preview
+    env:
+      CGO_ENABLED: '0'
+      GOTOOLCHAIN: local
+      GOPROXY: 'off'
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Проверить систему и Go
+        run: |
+          set -eu
+          cat /etc/os-release
+          go version
+          test "$(id -u)" -ne 0
+
+      - name: Проверить график и сохранение после обновления/перезапуска
+        run: |
+          set -eu
+          go test -count=1 -v ./...
+
+      - name: Статический анализ
+        run: |
+          set -eu
+          go vet ./...
+
+      - name: Собрать демонстрационную программу
+        run: |
+          set -eu
+          go build -trimpath -o "$RUNNER_TEMP/laborcontrol-schedules-preview" .
+          test -s "$RUNNER_TEMP/laborcontrol-schedules-preview"
+          ls -lh "$RUNNER_TEMP/laborcontrol-schedules-preview"
+
+# Все тесты используют t.TempDir(), httptest и синтетических сотрудников.
+# Не открывать порт 8788 на runner: пользователь может уже держать демо запущенным.
+# Это API/интеграционные проверки демонстрационной версии, не тест GUI браузера
+# и не проверка функционального соответствия Windows LaborControl R11.
