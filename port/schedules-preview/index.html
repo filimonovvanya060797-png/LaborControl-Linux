@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LaborControl — графики (первый Linux-экран)</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color-scheme: light; }
+    body { margin: 0; color: #223047; background: #f4f6fa; }
+    header { padding: 20px 28px; background: #172b48; color: white; }
+    header h1 { margin: 0 0 6px; font-size: 23px; }
+    header p { margin: 0; color: #cad9ef; }
+    main { padding: 18px 26px; }
+    .notice { border: 1px solid #dfc38a; background: #fff8e6; padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; }
+    .filters { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    label { display: grid; gap: 5px; font-size: 13px; font-weight: 650; }
+    select, input, button { font: inherit; padding: 8px 10px; border: 1px solid #bdc8d7; border-radius: 6px; background: white; color: #223047; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    button:hover:not(:disabled) { border-color: #376ca7; }
+    .table-box { overflow: auto; background: white; border: 1px solid #d4dce8; border-radius: 8px; max-height: 69vh; }
+    table { border-collapse: separate; border-spacing: 0; white-space: nowrap; font-size: 13px; }
+    th, td { min-width: 37px; text-align: center; border-right: 1px solid #e3e8ef; border-bottom: 1px solid #e3e8ef; padding: 7px 5px; }
+    th { position: sticky; top: 0; z-index: 2; background: #e8eef7; }
+    .name { text-align: left; min-width: 160px; }
+    th.name { position: sticky; left: 0; z-index: 4; }
+    td.name { position: sticky; left: 0; z-index: 1; background: white; }
+    td.day { cursor: pointer; }
+    td.day:hover { outline: 2px solid #527eb5; outline-offset: -2px; }
+    .off { background: #edf1f6; }
+    .duty { background: #e4f5ec; }
+    .leave { background: #fff0ce; }
+    .footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 0; }
+    .muted { color: #566477; font-size: 13px; }
+    .error { color: #a50000; font-weight: 600; }
+    @media(max-width: 600px) { main { padding: 12px; } header { padding: 15px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LaborControl · Графики</h1>
+    <p>Первый работающий экран для ALT Linux — отдельный прототип</p>
+  </header>
+  <main>
+    <div class="notice">
+      <strong>Демонстрация, не рабочая база.</strong> Здесь 450 вымышленных водителей в двух колоннах.
+      Первые 10 строк содержат условные примеры, остальные графики пустые.
+      Ячейки можно редактировать нажатием; изменения сохраняются только в отдельном демонстрационном файле.
+      Расчёты АвтоГрафа, циклы полётов и правила R11 ещё не перенесены.
+    </div>
+    <div class="filters">
+      <label>Месяц <input type="month" id="month"></label>
+      <label>Колонна
+        <select id="column">
+          <option value="all">Обе (450)</option>
+          <option value="1">Колонна 1 (225)</option>
+          <option value="2">Колонна 2 (225)</option>
+        </select>
+      </label>
+      <label>Поиск по табелю / имени <input type="search" id="query" placeholder="D0001 или Водитель 001"></label>
+      <button type="button" id="refresh">Обновить</button>
+    </div>
+    <p id="status" class="muted" role="status">Загрузка…</p>
+    <div class="table-box">
+      <table aria-label="График водителей">
+        <thead id="head"></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="footer">
+      <button id="prev" type="button">← Назад</button>
+      <span id="pagination" class="muted"></span>
+      <button id="next" type="button">Вперёд →</button>
+      <span class="muted">Нажмите на ячейку дня, чтобы изменить условный план.</span>
+    </div>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+    const m = $('month'), col = $('column'), q = $('query');
+    const now = new Date();
+    m.value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    let page = 1, pages = 1;
+    function cell(tag, content, cls) {
+      const el = document.createElement(tag);
+      if (cls) el.className = cls;
+      el.textContent = content;
+      return el;
+    }
+    async function load() {
+      if (!m.value) return;
+      $('status').textContent = 'Загрузка графиков…';
+      $('status').className = 'muted';
+      try {
+        const params = new URLSearchParams({month: m.value, column: col.value, page: String(page), q: q.value});
+        const res = await fetch('/api/roster?' + params);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        pages = data.pages;
+        const [year, month] = m.value.split('-').map(Number);
+        const dates = Array.from({length: data.days_in_month}, (_, i) => m.value + '-' + String(i+1).padStart(2, '0'));
+        const header = document.createElement('tr');
+        header.appendChild(cell('th', 'Табель / ФИО', 'name'));
+        header.appendChild(cell('th', 'Кол.'));
+        dates.forEach((date, i) => {
+          const h = cell('th', String(i+1));
+          const weekday = new Date(year, month-1, i+1).getDay();
+          if (weekday === 0 || weekday === 6) h.className = 'off';
+          header.appendChild(h);
+        });
+        $('head').replaceChildren(header);
+        const body = document.createDocumentFragment();
+        for (const emp of data.employees) {
+          const tr = document.createElement('tr');
+          tr.appendChild(cell('td', emp.tab_no + ' · ' + emp.name, 'name'));
+          tr.appendChild(cell('td', String(emp.column)));
+          for (const date of dates) {
+            const value = emp.days[date] || '';
+            const klass = value === 'В' ? 'day off' : (value === 'ОТ' || value === 'ДП' ? 'day leave' : (value ? 'day duty' : 'day'));
+            const td = cell('td', value || '·', klass);
+            td.title = emp.name + ' — ' + date + ': изменить план';
+            td.addEventListener('click', () => edit(emp, date, value));
+            tr.appendChild(td);
+          }
+          body.appendChild(tr);
+        }
+        $('rows').replaceChildren(body);
+        $('pagination').textContent = pages ? ('Страница ' + page + ' из ' + pages) : 'Нет совпадений';
+        $('prev').disabled = page <= 1;
+        $('next').disabled = page >= pages;
+        $('status').textContent = 'Найдено ' + data.total + ' вымышленных водителей. Показано ' + data.employees.length + '.';
+      } catch (err) {
+        $('status').textContent = 'Ошибка: ' + err.message;
+        $('status').className = 'error';
+      }
+    }
+    async function edit(emp, date, current) {
+      const value = window.prompt('Демонстрационный план: ' + emp.name + ', ' + date + '.\nНапример: 8, 11, 1/11, 2/11, В, ДП, ОТ. Пусто — очистить.', current);
+      if (value === null) return;
+      try {
+        const res = await fetch('/api/plan', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({tab_no:emp.tab_no, date, plan:value.trim()})
+        });
+        if (!res.ok) throw new Error(await res.text());
+        await load();
+      } catch(err) { alert('Не удалось сохранить: ' + err.message); }
+    }
+    for (const el of [m, col]) el.addEventListener('change', () => { page=1; load(); });
+    q.addEventListener('input', () => { page=1; load(); });
+    $('refresh').addEventListener('click', load);
+    $('prev').addEventListener('click', () => { if (page > 1) { page--; load(); }});
+    $('next').addEventListener('click', () => { if (page < pages) { page++; load(); }});
+    load();
+  </script>
+</body>
+</html>
