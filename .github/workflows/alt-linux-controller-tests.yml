@@ -1,0 +1,65 @@
+# Запуск существующих Go-тестов и сборки контроллера непосредственно на ALT Linux.
+# Запускается вручную; не выполняет приложение и не обращается к рабочим базам.
+name: ALT Linux — Go tests and build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  controller-tests:
+    name: Go tests and build on ALT Linux
+    runs-on: [self-hosted, linux, x64, alt-laborcontrol]
+    timeout-minutes: 15
+    steps:
+      - name: Получить исходный код
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: true
+
+      - name: Проверить среду
+        shell: bash
+        run: |
+          set -eu
+          cat /etc/os-release
+          uname -m
+          id
+          go version
+
+      - name: Запустить Go-тесты контроллера
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+        shell: bash
+        run: |
+          set -eu
+          go test -count=1 ./...
+
+      - name: Статическая проверка go vet
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+        shell: bash
+        run: |
+          set -eu
+          go vet ./...
+
+      - name: Собрать Linux-контроллер
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+        shell: bash
+        run: |
+          set -eu
+          go build -trimpath -o "$RUNNER_TEMP/laborcontrol-controller" .
+          test -x "$RUNNER_TEMP/laborcontrol-controller"
+          ls -lh "$RUNNER_TEMP/laborcontrol-controller"
