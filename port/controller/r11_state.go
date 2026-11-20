@@ -32,8 +32,8 @@ var r11RequiredDataKeys = []string{
 type r11DayChange struct {
 	EmployeeID int64   `json:"employee_id"`
 	Date       string  `json:"date"`
-	Plan       string  `json:"plan"`
-	PlanHours  int32   `json:"plan_hours"`
+	Plan       *string `json:"plan"`
+	PlanHours  *int32  `json:"plan_hours"`
 	State      *string `json:"state,omitempty"`
 }
 
@@ -286,11 +286,15 @@ func (h *controller) r11UpdateDays(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("days[%d]: дата должна иметь формат YYYY-MM-DD", i), http.StatusBadRequest)
 			return
 		}
-		if len(item.Plan) > 32 || strings.ContainsAny(item.Plan, "\r\n\x00") {
+		if item.Plan == nil || item.PlanHours == nil {
+			http.Error(w, fmt.Sprintf("days[%d]: обязательны поля plan и plan_hours", i), http.StatusBadRequest)
+			return
+		}
+		if len(*item.Plan) > 32 || strings.ContainsAny(*item.Plan, "\r\n\x00") {
 			http.Error(w, fmt.Sprintf("days[%d]: недопустимое обозначение плана", i), http.StatusBadRequest)
 			return
 		}
-		if item.PlanHours < 0 || item.PlanHours > 24 {
+		if *item.PlanHours < 0 || *item.PlanHours > 24 {
 			http.Error(w, fmt.Sprintf("days[%d]: plan_hours должен быть от 0 до 24", i), http.StatusBadRequest)
 			return
 		}
@@ -380,8 +384,8 @@ func (h *controller) r11UpdateDays(w http.ResponseWriter, r *http.Request) {
 		key := r11DayKey(item.EmployeeID, item.Date)
 		if pos, exists := positions[key]; exists {
 			day := days[pos]
-			day["plan"], _ = json.Marshal(item.Plan)
-			day["plan_hours"], _ = json.Marshal(item.PlanHours)
+			day["plan"], _ = json.Marshal(*item.Plan)
+			day["plan_hours"], _ = json.Marshal(*item.PlanHours)
 			if item.State != nil {
 				day["state"], _ = json.Marshal(*item.State)
 			}
@@ -390,7 +394,7 @@ func (h *controller) r11UpdateDays(w http.ResponseWriter, r *http.Request) {
 			day := map[string]json.RawMessage{}
 			values := map[string]any{
 				"id": nextID, "employee_id": item.EmployeeID, "date": item.Date,
-				"plan": item.Plan, "plan_hours": item.PlanHours,
+				"plan": *item.Plan, "plan_hours": *item.PlanHours,
 				"fact": "", "fact_hours": 0, "shift": "", "state": "", "comment": "",
 			}
 			for name, value := range values {
