@@ -119,6 +119,23 @@ static void on_backend_exit(GObject *object, GAsyncResult *result, gpointer user
     }
 }
 
+/* Compare parsed scheme/host/port, not a string prefix. A URL such as
+ * http://127.0.0.1:8779@untrusted.example must never load inside our window. */
+static gboolean app_local_uri_allowed(const gchar *uri) {
+    if (uri == NULL) return FALSE;
+    GError *error = NULL;
+    GUri *parsed = g_uri_parse(uri, G_URI_FLAGS_NONE, &error);
+    g_clear_error(&error);
+    if (parsed == NULL) return FALSE;
+    gboolean allowed =
+        g_strcmp0(g_uri_get_scheme(parsed), "http") == 0 &&
+        g_strcmp0(g_uri_get_host(parsed), LOOPBACK_HOST) == 0 &&
+        g_uri_get_port(parsed) == LOOPBACK_PORT &&
+        g_uri_get_userinfo(parsed) == NULL;
+    g_uri_unref(parsed);
+    return allowed;
+}
+
 static gboolean on_decide_navigation(WebKitWebView *web, WebKitPolicyDecision *decision,
                                       WebKitPolicyDecisionType kind, gpointer user_data) {
     (void)web;
@@ -129,7 +146,7 @@ static gboolean on_decide_navigation(WebKitWebView *web, WebKitPolicyDecision *d
         WEBKIT_NAVIGATION_POLICY_DECISION(decision));
     const gchar *uri = webkit_uri_request_get_uri(request);
     if (uri != NULL &&
-        (g_str_has_prefix(uri, APP_ORIGIN) || g_str_has_prefix(uri, "about:blank"))) {
+        (app_local_uri_allowed(uri) || g_str_has_prefix(uri, "about:blank"))) {
         return FALSE;
     }
     webkit_policy_decision_ignore(decision);
@@ -298,6 +315,12 @@ int main(int argc, char **argv) {
         gchar *dir = resolved_install_dir();
         gchar *backend = dir != NULL ? g_build_filename(dir, "laborcontrol-controller", NULL) : NULL;
         gboolean ok = backend != NULL && g_file_test(backend, G_FILE_TEST_IS_EXECUTABLE);
+        /* Also smoke-test the navigation origin guard, without a display. */
+        ok = ok && app_local_uri_allowed(APP_URL) &&
+             app_local_uri_allowed("http://127.0.0.1:8779/tab2?embed=tab2") &&
+             !app_local_uri_allowed("http://127.0.0.1:8779@untrusted.example/") &&
+             !app_local_uri_allowed("http://untrusted.example/") &&
+             !app_local_uri_allowed("https://127.0.0.1:8779/r11");
         g_print("LaborControl R11 desktop shell: GTK %d.%d / WebKitGTK %u.%u; backend %s\n",
                 gtk_get_major_version(), gtk_get_minor_version(),
                 webkit_get_major_version(), webkit_get_minor_version(),
