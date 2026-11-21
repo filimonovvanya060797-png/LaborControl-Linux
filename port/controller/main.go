@@ -119,12 +119,18 @@ func main() {
 		showMessage("LaborControl", "Не удалось определить папку данных: "+err.Error())
 		return
 	}
-	if err := os.MkdirAll(base, 0755); err != nil {
+	if err := os.MkdirAll(base, 0700); err != nil {
 		showMessage("LaborControl", "Не удалось открыть локальную папку данных: "+err.Error())
 		return
 	}
-	lf, _ := os.OpenFile(filepath.Join(base, "laborcontrol_controller.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	// Restrict older installations too. Chmod may not be supported by every
+	// shared filesystem; failure must not render a valid database unusable.
+	if err := os.Chmod(base, 0700); err != nil {
+		log.Printf("warning: unable to restrict LaborControl directory: %v", err)
+	}
+	lf, _ := os.OpenFile(filepath.Join(base, "laborcontrol_controller.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if lf != nil {
+		_ = lf.Chmod(0600)
 		log.SetOutput(lf)
 	}
 
