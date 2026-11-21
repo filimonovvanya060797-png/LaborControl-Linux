@@ -102,7 +102,7 @@ function formatDate(s){if(!s)return'';let [y,m,d]=s.split('-');return `${d}.${m}
 function setAgSection(x){if(x==='calendar')calMonth=agMonth;agSection=x;render()}function agSetTab(v){agTab=v;selectedDate=iso(agYear,agMonth,1);render()}function agSetYear(v){agYear=v;selectedDate=iso(agYear,agMonth,1);calSelectedDate=iso(agYear,calMonth,1);render()}function agSetMonth(v){agMonth=v;selectedDate=iso(agYear,agMonth,1);render()}function agSetView(v){agView=v;render()}function setCalendarMonth(v){calMonth=Number(v);calSelectedDate=iso(agYear,calMonth,1);render()}
 function selectCalDate(date){calSelectedDate=date;calMonth=Number(date.slice(5,7));render()}function openInAg(tab,date){agTab=tab;let p=date.split('-');agYear=Number(p[0]);agMonth=Number(p[1]);selectedDate=date;agView='month';agSection='graph';current='autograf';renderNav();render()}function openEmployee(tab){agTab=tab;agSection='graph';current='autograf';renderNav();render()}
 async function post(url,obj,msg='Сохранено'){try{await api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)});await load();toast(msg)}catch(e){toast(e.message,true)}}function val(id){return document.getElementById(id)?.value||''}function num(id){return Number(val(id))||0}function checked(id){return !!document.getElementById(id)?.checked}function syncRvdRest(typeId,inputId,wrapId){let single=(Number(val(typeId))||1)===1,i=document.getElementById(inputId),w=document.getElementById(wrapId);if(i){if(!single)i.value='';i.disabled=!single}if(w){if(!single)w.querySelectorAll('input[type=date]').forEach(x=>x.value='');w.style.display=single?'':'none'}}
-async 
+
 function lcConfirm(message,options={}){
   return new Promise(resolve=>{
     const title=options.title||'Подтверждение действия';
