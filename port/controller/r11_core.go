@@ -25,6 +25,8 @@ func (h *controller) r11CoreAPI(w http.ResponseWriter, r *http.Request) {
 		h.r11CoreState(w, r)
 	case "/api/employee/save":
 		h.r11EmployeeSave(w, r)
+	case "/api/employee/points/template.xlsx":
+		h.r11CollectionPointTemplate(w, r)
 	case "/api/employee/delete":
 		h.r11EmployeeDelete(w, r)
 	case "/api/day/save", "/api/day/quick-save":
