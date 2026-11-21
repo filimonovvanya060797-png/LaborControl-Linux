@@ -1,6 +1,9 @@
 package main
 
-import _ "embed"
+import (
+    _ "embed"
+    "net/http"
+)
 
 //go:embed r11_original.html
 var r11OriginalHTML []byte
@@ -29,3 +32,17 @@ async function r11ImportWindowsState(){
   }catch(error){if(status)status.textContent='Ошибка импорта: '+(error?.message||String(error))}
 }
 </script>`;
+
+ 
+// serveEmbeddedTab2 keeps the isolated R11 desktop on a single localhost port.
+// The legacy Tab2 UI is embedded, while its /api/tab2/... endpoints are
+// registered on that same mux; no separate 8767 browser/service is required.
+func (h *controller) serveEmbeddedTab2(w http.ResponseWriter, r *http.Request) {
+    if r.URL.Path != "/tab2" || r.Method != http.MethodGet {
+        http.NotFound(w, r)
+        return
+    }
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+    w.Header().Set("Cache-Control", "no-store")
+    _, _ = w.Write(frontendHTML)
+}

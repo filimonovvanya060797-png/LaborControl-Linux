@@ -51,6 +51,7 @@ func (h *controller) runStandaloneR11() error {
 	mux.HandleFunc("/api/state/import", h.wrap(h.r11ImportState))
 	mux.HandleFunc("/api/state/days", h.wrap(h.r11UpdateDays))
 	h.registerTab2(mux)
+	mux.HandleFunc("/tab2", h.serveEmbeddedTab2)
 	mux.HandleFunc("/api/", h.wrap(h.r11CoreAPI))
 	mux.HandleFunc("/r11", h.serveR11UI)
 	mux.HandleFunc("/", h.serveR11UI)
