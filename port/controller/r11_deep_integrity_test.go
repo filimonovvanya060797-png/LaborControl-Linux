@@ -4,7 +4,9 @@ import (
     "bytes"
     "encoding/json"
     "fmt"
+    "mime/multipart"
     "net/http"
+    "net/http/httptest"
     "os"
     "testing"
 )
@@ -157,5 +159,29 @@ func TestR11DeepAuditCalendarImportRejectsMalformedRowsWithoutWriting(t *testing
     }
     for _,body:=range badRows{
         assertNoDBChangeOnRejectedRequest(t,h,"/api/calendar/import-confirm",body)
+    }
+}
+
+ 
+func TestR11DeepAuditCSVEventImportIsIdempotent(t *testing.T) {
+    h := newR11TestController(t)
+    r11MustPost(t,h,"/api/employee/save",`{"tab_no":"AUDIT-E","full_name":"Водитель"}`)
+    csv := "tab_no;date_from;date_to;event_type;source_code;source;note\nAUDIT-E;2026-11-20;2026-11-21;SICK;2001;SAP;синтетический тест\n"
+    var body bytes.Buffer
+    mw := multipart.NewWriter(&body)
+    fw, err := mw.CreateFormFile("file", "synthetic_events.csv")
+    if err != nil { t.Fatal(err) }
+    if _,err=fw.Write([]byte(csv));err!=nil{t.Fatal(err)}
+    if err=mw.Close();err!=nil{t.Fatal(err)}
+    for i:=0;i<2;i++{
+        req:=httptest.NewRequest(http.MethodPost,"/api/import/events",bytes.NewReader(body.Bytes()))
+        req.Header.Set("Content-Type",mw.FormDataContentType())
+        rec:=httptest.NewRecorder()
+        h.r11ImportEvents(rec,req)
+        if rec.Code!=http.StatusOK {t.Fatalf("import %d failed: HTTP %d: %s",i,rec.Code,rec.Body.String())}
+    }
+    events:=r11Rows(t,readR11CoreState(t,h),"events")
+    if len(events)!=1 {
+        t.Fatalf("repeated import created %d identical events; expected idempotent single event",len(events))
     }
 }
