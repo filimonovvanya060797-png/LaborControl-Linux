@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xauth python3-gi gir1.2-webkit2-4.1
       - name: Verify scripts and desktop dependencies
         shell: bash
         run: |
@@ -57,6 +57,27 @@ jobs:
       - name: Build isolated Linux desktop distribution
         shell: bash
         run: bash port/desktop/build.sh "$RUNNER_TEMP/laborcontrol-r11-desktop"
+      - name: Run real WebKitGTK screen navigation on synthetic local database
+        shell: bash
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: '1'
+        run: |
+          set -euo pipefail
+          export XDG_DATA_HOME="$RUNNER_TEMP/r11-webkit-synthetic"
+          export LABORCONTROL_DESKTOP_MODE=1
+          export LABORCONTROL_DESKTOP_TOKEN="github-actions-ui-test"
+          mkdir -p "$XDG_DATA_HOME"
+          "$RUNNER_TEMP/laborcontrol-r11-desktop/laborcontrol-controller" > "$RUNNER_TEMP/r11-webkit-backend.log" 2>&1 &
+          BACKEND_PID=$!
+          trap 'curl -s -X POST http://127.0.0.1:8779/api/shutdown >/dev/null || true; kill "$BACKEND_PID" 2>/dev/null || true; cat "$RUNNER_TEMP/r11-webkit-backend.log"' EXIT
+          for i in {1..100}; do
+            if curl -fsS http://127.0.0.1:8779/health >/dev/null 2>&1; then break; fi
+            sleep 0.2
+          done
+          curl -fsS http://127.0.0.1:8779/health
+          curl -fsS -X POST http://127.0.0.1:8779/api/employee/save -H 'Content-Type: application/json' -d '{"tab_no":"990001","full_name":"Тестов Иван Иванович","position":"Водитель","unit":"Колонна 1","collection_point":"Тюмень"}'
+          curl -fsS -X POST http://127.0.0.1:8779/api/day/save -H 'Content-Type: application/json' -d '{"TabNo":"990001","Date":"2026-11-20","Plan":"1/8","PlanHours":8}'
+          timeout 90s xvfb-run -a /usr/bin/python3 port/desktop/tests/webkit_smoke.py
       - name: Check shell without display and library dependencies
         shell: bash
         run: |
