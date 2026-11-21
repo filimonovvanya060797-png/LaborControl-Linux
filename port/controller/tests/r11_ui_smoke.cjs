@@ -90,4 +90,45 @@ execute([{module:'dashboard',label:'empty dashboard'},{module:'employees',label:
 execute([...screens,...sections,
   {module:'autograf',section:'graph',view:'year',label:'autograf / yearly graph'}
 ],fixture(true));
+
+// A real user's R11 graph may already contain an official revision, notes,
+// colors and a technical rollback snapshot. Exercise these distinct paths.
+const versioned = fixture(true);
+versioned.data.graph_revisions.push({
+  id:10,employee_id:1,number:1,status:'ACTIVE',
+  effective_date:'2026-11-01',schedule_type:'',reason:'Исходный график',
+  days_snapshot:[...versioned.data.days],
+  events_snapshot:[],notes_snapshot:[],colors_snapshot:[]
+});
+versioned.data.graph_versions.push({
+  id:20,employee_id:1,year:2026,label:'Тест до изменения',days:[...versioned.data.days]
+});
+versioned.data.notes.push({
+  id:30,employee_id:1,date_from:'2026-11-20',date_to:'2026-11-20',
+  text:'Тестовое примечание',reminder:''
+});
+versioned.data.manual_colors.push({
+  id:40,employee_id:1,date_from:'2026-11-20',date_to:'2026-11-20',
+  color:'yellow'
+});
+execute([...sections,
+  {module:'autograf',section:'graph',view:'year',label:'versioned / yearly graph'}
+],versioned);
+
+// Scale check: the intended workstation may hold two columns (~450 drivers).
+const large = fixture(false);
+for(let i=1;i<=450;i++){
+  large.data.employees.push({
+    id:i,tab_no:String(990000+i),full_name:'Водитель '+i,
+    position:'Водитель',unit:i<=225?'Колонна 1':'Колонна 2',
+    collection_point:'Тюмень',schedule_type:'',is_quarter:false,
+    hire_date:'',fire_date:'',probation:false,probation_end:'',
+    main_schedule_ready:false,notes:''
+  });
+}
+execute([
+  {module:'dashboard',label:'450 drivers / dashboard'},
+  {module:'employees',label:'450 drivers / employees'},
+  {module:'autograf',section:'graph',label:'450 drivers / active graph'}
+],large);
 console.log('R11 UI render smoke: PASS');
