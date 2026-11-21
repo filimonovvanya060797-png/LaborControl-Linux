@@ -68,8 +68,10 @@ func (h *controller) runStandaloneR11() error {
 
 	uiURL := "http://" + listenAddr + "/r11"
 	log.Printf("%s started in native Linux Core mode; database=%s; UI=%s", r11CoreVersion, h.mainDBPath(), uiURL)
-	if err := openURL(uiURL); err != nil {
-		showMessage("LaborControl", "Локальный редактор запущен. Откройте в браузере: "+uiURL)
+	if !desktopMode() {
+		if err := openURL(uiURL); err != nil {
+			showMessage("LaborControl", "Локальный редактор запущен. Откройте в браузере: "+uiURL)
+		}
 	}
 	select {}
 }

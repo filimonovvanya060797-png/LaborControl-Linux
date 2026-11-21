@@ -73,7 +73,19 @@ type controller struct {
 	standalone bool
 }
 
+// Desktop mode is used only by the native GTK window. It must not open the
+// browser or stop/reuse an unrelated service on the fixed localhost port.
+func desktopMode() bool { return os.Getenv("LABORCONTROL_DESKTOP_MODE") == "1" }
+
 func main() {
+	if desktopMode() {
+		conn, err := net.DialTimeout("tcp", listenAddr, 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			showMessage("LaborControl", "Порт 8779 уже занят. Закройте прежнюю версию LaborControl перед запуском отдельного окна.")
+			return
+		}
+	} else {
 	// Reuse only the same controller build. If an older preview is still
 	// listening on 8767, stop it first so a newly launched ZIP cannot silently
 	// fall back to yesterday's controller/frontend.
@@ -89,6 +101,8 @@ func main() {
 		_ = stopExistingController()
 		_ = waitControllerDown(5 * time.Second)
 	}
+
+	} // end browser-mode process reuse logic
 
 	// Previous preview builds could leave their legacy Core running on a random port.
 	// Kill only that legacy child process before starting this build, otherwise the browser
@@ -269,7 +283,9 @@ func (h *controller) health(w http.ResponseWriter, r *http.Request) {
 	if h.standalone {
 		version = r11CoreVersion
 	}
-	writeJSON(w, map[string]any{"ok": true, "version": version})
+	response := map[string]any{"ok": true, "version": version}
+	if desktopMode() { response["desktop_instance"] = os.Getenv("LABORCONTROL_DESKTOP_TOKEN") }
+	writeJSON(w, response)
 }
 
 func (h *controller) startEndpoint(w http.ResponseWriter, r *http.Request) {
