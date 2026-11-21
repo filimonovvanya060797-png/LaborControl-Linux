@@ -25,6 +25,7 @@ typedef struct {
     guint checks;
     gboolean page_opened;
     gboolean closing;
+    gboolean backend_finished;
 } Desktop;
 
 static Desktop desktop = {0};
@@ -95,7 +96,7 @@ static void on_window_destroy(GtkWidget *widget, gpointer user_data) {
     (void)widget;
     (void)user_data;
     desktop.closing = TRUE;
-    if (desktop.backend != NULL && !g_subprocess_get_if_exited(desktop.backend)) {
+    if (desktop.backend != NULL && !desktop.backend_finished) {
         request_backend_shutdown();
     }
 }
@@ -107,8 +108,13 @@ static void on_backend_exit(GObject *object, GAsyncResult *result, gpointer user
         g_warning("Backend wait: %s", error != NULL ? error->message : "unknown");
     }
     g_clear_error(&error);
+    desktop.backend_finished = TRUE;
     if (!desktop.closing && desktop.window != NULL) {
-        show_error("Локальный сервер LaborControl завершился. Проверьте журнал приложения.");
+        /* A normal /api/shutdown request from R11 is not an application crash. */
+        if (!g_subprocess_get_if_exited(desktop.backend) ||
+            g_subprocess_get_exit_status(desktop.backend) != 0) {
+            show_error("Локальный сервер LaborControl завершился с ошибкой. Проверьте журнал приложения.");
+        }
         gtk_widget_destroy(desktop.window);
     }
 }
