@@ -915,8 +915,8 @@ func (h *controller) r11RevisionActivate(w http.ResponseWriter, r *http.Request)
 			if !ok || string(raw) == "null" { return nil, "", fmt.Errorf("у редакции ID %d отсутствует снимок %s; восстановление отменено",id,col.Snapshot) }
 			var snap []map[string]json.RawMessage
 			if e := json.Unmarshal(raw, &snap); e != nil { return nil, "", fmt.Errorf("снимок %s повреждён: %w",col.Snapshot,e) }
-			for _, item := range snap {
-				if r11Int(item,"employee_id")!=employeeID { return nil,"",fmt.Errorf("снимок %s содержит запись другого сотрудника",col.Snapshot) }
+			if err := r11ValidateRevisionSnapshotRows(col.Key, snap, rows, employeeID); err != nil {
+				return nil, "", err
 			}
 			if snap==nil { snap=[]map[string]json.RawMessage{} }
 			snapshot[col.Key]=snap
