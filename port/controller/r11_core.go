@@ -1100,13 +1100,25 @@ func (h *controller) r11CSVImport(w http.ResponseWriter, r *http.Request, events
 	employees,err:=r11Array(root,"employees");if err!=nil{http.Error(w,err.Error(),500);return}
 	days,err:=r11Array(root,"days");if err!=nil{http.Error(w,err.Error(),500);return}
 	events,err:=r11Array(root,"events");if err!=nil{http.Error(w,err.Error(),500);return}
+	// Repeated import of the same SAP/ISAT report must not duplicate an event.
+	csvEventKey:=func(e map[string]json.RawMessage)string{
+		return strings.Join([]string{
+			strconv.FormatInt(r11Int(e,"employee_id"),10),r11String(e,"date_from"),
+			r11String(e,"date_to"),r11String(e,"event_type"),
+			r11String(e,"source_code"),r11String(e,"source"),r11String(e,"note"),
+		},"\\x00")
+	}
+	seenCSVEvents:=map[string]bool{}
+	for _,e:=range events{seenCSVEvents[csvEventKey(e)]=true}
 	applied:=0
 	for rowIndex,row:=range rows[1:]{
 		emp,_:=r11FindEmployee(employees,get(row,"tab_no"));if emp==nil{continue}
 		if eventsOnly {
 			a:=r11NormalizeDate(get(row,"date_from"));if a==""{a=r11NormalizeDate(get(row,"date"))}
 			b:=r11NormalizeDate(get(row,"date_to"));if b==""{b=a};if !r11DateOK(a)||!r11DateOK(b)||b<a{continue}
-			item:=map[string]json.RawMessage{};r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date_from",a);r11Put(item,"date_to",b);r11Put(item,"event_type",get(row,"event_type"));r11Put(item,"source_code",get(row,"source_code"));r11Put(item,"source",get(row,"source"));r11Put(item,"note",get(row,"note"));r11Put(item,"created_at",time.Now().Format(time.RFC3339));events=append(events,item);applied++
+			item:=map[string]json.RawMessage{};r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date_from",a);r11Put(item,"date_to",b);r11Put(item,"event_type",get(row,"event_type"));r11Put(item,"source_code",get(row,"source_code"));r11Put(item,"source",get(row,"source"));r11Put(item,"note",get(row,"note"))
+			key:=csvEventKey(item);if seenCSVEvents[key]{continue}
+			r11Put(item,"id",r11NextID(root));r11Put(item,"created_at",time.Now().Format(time.RFC3339));events=append(events,item);seenCSVEvents[key]=true;applied++
 		} else {
 			date:=r11NormalizeDate(get(row,"date"));if !r11DateOK(date){continue};pos:=-1
 			for i,d:=range days{if r11Int(d,"employee_id")==r11Int(emp,"id")&&r11String(d,"date")==date{pos=i;break}}
