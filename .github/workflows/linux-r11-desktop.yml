@@ -43,6 +43,12 @@ jobs:
         run: |
           bash -n port/desktop/build.sh port/desktop/install-user.sh
           pkg-config --modversion gtk+-3.0 webkit2gtk-4.1
+      - name: Check native R11 JavaScript screen rendering
+        shell: bash
+        run: |
+          node --version
+          node --check port/controller/tests/r11_ui_smoke.cjs
+          node port/controller/tests/r11_ui_smoke.cjs
       - name: Run Go regression tests
         working-directory: port/controller
         env:
