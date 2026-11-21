@@ -77,6 +77,8 @@ jobs:
           curl -fsS http://127.0.0.1:8779/health
           curl -fsS -X POST http://127.0.0.1:8779/api/employee/save -H 'Content-Type: application/json' -d '{"tab_no":"990001","full_name":"Тестов Иван Иванович","position":"Водитель","unit":"Колонна 1","collection_point":"Тюмень"}'
           curl -fsS -X POST http://127.0.0.1:8779/api/day/save -H 'Content-Type: application/json' -d '{"TabNo":"990001","Date":"2026-11-20","Plan":"1/8","PlanHours":8}'
+          curl -fsS -X POST http://127.0.0.1:8779/api/autograf/version/create -H 'Content-Type: application/json' -d '{"tab_no":"990001","year":2026,"label":"Тест до изменения"}'
+          curl -fsS -X POST http://127.0.0.1:8779/api/autograf/revision/create -H 'Content-Type: application/json' -d '{"tab_no":"990001","effective_date":"2026-11-01","schedule_type":"","reason":"Исходный график"}'
           timeout 90s xvfb-run -a /usr/bin/python3 port/desktop/tests/webkit_smoke.py
       - name: Check shell without display and library dependencies
         shell: bash
