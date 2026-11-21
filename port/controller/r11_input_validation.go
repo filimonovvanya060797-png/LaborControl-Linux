@@ -88,3 +88,41 @@ func r11StrictCalendarPayload(body map[string]json.RawMessage) error {
     }
     return r11StrictHoursField(body, "norm_hours", 24)
 }
+
+ 
+// An archived revision snapshot replaces records belonging to one driver.
+// Reject duplicate IDs/dates and IDs already occupied by other drivers.
+// Never partially restore a corrupted snapshot to the shared database.
+func r11ValidateRevisionSnapshotRows(
+    collection string,
+    snapshot []map[string]json.RawMessage,
+    current []map[string]json.RawMessage,
+    employeeID int64,
+) error {
+    otherIDs := map[int64]bool{}
+    for _, item := range current {
+        if r11Int(item, "employee_id") != employeeID {
+            if id := r11Int(item, "id"); id > 0 { otherIDs[id] = true }
+        }
+    }
+    seenIDs := map[int64]bool{}
+    seenDates := map[string]bool{}
+    for _, item := range snapshot {
+        id := r11Int(item, "id")
+        if id < 1 || seenIDs[id] || otherIDs[id] {
+            return fmt.Errorf("снимок %s содержит пустой, повторный или занятый ID %d", collection, id)
+        }
+        seenIDs[id] = true
+        if r11Int(item, "employee_id") != employeeID {
+            return fmt.Errorf("снимок %s содержит запись другого сотрудника", collection)
+        }
+        if collection == "days" {
+            date := r11String(item, "date")
+            if !r11DateOK(date) || seenDates[date] {
+                return fmt.Errorf("снимок графика содержит неверную или повторную дату %q", date)
+            }
+            seenDates[date] = true
+        }
+    }
+    return nil
+}
