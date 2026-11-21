@@ -60,7 +60,7 @@ func (h *controller) runStandaloneR11() error {
 	if err != nil {
 		return fmt.Errorf("не удалось открыть локальный адрес %s: %w", listenAddr, err)
 	}
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 1 << 20}
+	srv := &http.Server{Handler: r11LocalOnlyHandler(mux), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 1 << 20}
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("R11 state workspace stopped: %v", err)
