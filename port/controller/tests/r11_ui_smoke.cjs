@@ -71,13 +71,14 @@ function execute(config, state) {
   );
   for (const step of config) {
     errors.length=0;
-    const prepare=step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '';
+    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '');
     const code=prepare+'current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
     try {vm.runInContext(code,ctx,{filename:'render-'+step.module+'-'+(step.section||''),timeout:15000})}
     catch (error) {throw new Error(step.label+': uncaught JavaScript error: '+error.stack)}
     const page=getElement('page').innerHTML;
     assert.ok(page.length > 0,step.label+': blank UI');
     assert.ok(!page.includes('Ошибка интерфейса'),step.label+': '+page.match(/Ошибка интерфейса[\s\S]{0,220}/)?.[0]);
+    if(step.technicalVersion)assert.ok(page.includes('id="versionPreview"'),step.label+': selected technical version preview not shown');
     assert.equal(errors.length,0,step.label+': console.error: '+errors.join('\n'));
     process.stdout.write('OK '+step.label+'\n');
   }
@@ -113,7 +114,9 @@ versioned.data.manual_colors.push({
   color:'yellow'
 });
 execute([...sections,
-  {module:'autograf',section:'graph',view:'year',label:'versioned / yearly graph'}
+  {module:'autograf',section:'graph',view:'year',label:'versioned / yearly graph'},
+  {module:'autograf',section:'versions',technicalVersion:'view',label:'technical version / open previously saved version'},
+  {module:'autograf',section:'versions',technicalVersion:'compare',label:'technical version / compare previously saved version'}
 ],versioned);
 
 // Scale check: the intended workstation may hold two columns (~450 drivers).
