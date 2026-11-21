@@ -84,8 +84,8 @@ class Smoke:
         if self.done:
             return
         try:
-            jsc_result = view.evaluate_javascript_finish(async_result)
-            raw = jsc_result.get_js_value().to_string()
+            jsc_value = view.evaluate_javascript_finish(async_result)
+            raw = jsc_value.to_string()
             data = json.loads(raw)
             if not data["ready"]:
                 if self.attempts < 15:
