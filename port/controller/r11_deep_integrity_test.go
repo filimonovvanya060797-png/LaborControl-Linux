@@ -131,3 +131,31 @@ func TestR11DeepAuditRejectsArchivedRevisionIDCollisionsAndDuplicateDays(t *test
         })
     }
 }
+
+ 
+func TestR11DeepAuditIndividualFlightCannotOverwriteDifferentDriver(t *testing.T) {
+    h := newR11TestController(t)
+    r11MustPost(t,h,"/api/employee/save",`{"tab_no":"AUDIT-A","full_name":"А"}`)
+    r11MustPost(t,h,"/api/employee/save",`{"tab_no":"AUDIT-B","full_name":"Б"}`)
+    r11MustPost(t,h,"/api/employee-flight/import-confirm",
+        `{"rows":[{"tab_no":"AUDIT-B","date":"2026-11-20","kind":"DEPARTURE","collection_point":"Тюмень"}]}`)
+    records := r11Rows(t,readR11CoreState(t,h),"employee_flights")
+    if len(records)!=1 {t.Fatalf("wrong synthetic setup: %#v",records)}
+    id:=r11Int(records[0],"id")
+    assertNoDBChangeOnRejectedRequest(t,h,"/api/employee-flight/import-confirm",
+      fmt.Sprintf(`{"rows":[{"tab_no":"AUDIT-A","replace_id":%d,"date":"2026-11-21","kind":"ARRIVAL","collection_point":"Уфа"}]}`,id))
+}
+
+func TestR11DeepAuditCalendarImportRejectsMalformedRowsWithoutWriting(t *testing.T) {
+    h := newR11TestController(t)
+    r11MustPost(t,h,"/api/employee/save",`{"tab_no":"AUDIT-1","full_name":"А"}`)
+    badRows:=[]string{
+        `{"rows":[{"date":"2026-11-20","day_type":"WORK","norm_hours":-8}]}`,
+        `{"rows":[{"date":"2026-11-20","day_type":"WORK","norm_hours":"8"}]}`,
+        `{"rows":[{"date":"2026-11-20","day_type":"WORK","norm_hours":null}]}`,
+        `{"rows":[{"date":"2026-11-20","day_type":"WORK","norm_hours":8},{"date":"2026-11-20","day_type":"OFF","norm_hours":0}]}`,
+    }
+    for _,body:=range badRows{
+        assertNoDBChangeOnRejectedRequest(t,h,"/api/calendar/import-confirm",body)
+    }
+}
