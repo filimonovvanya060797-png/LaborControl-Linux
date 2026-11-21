@@ -4,7 +4,6 @@ import (
 	"bufio"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -778,48 +777,40 @@ func toFloat(v any) float64 {
 	}
 }
 
+// makeBackup never overwrites an earlier backup, even if two saves happen
+// within the same millisecond. Employee data must not be world-readable.
 func makeBackup(dbPath, backupDir string) (string, error) {
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		return "", err
-	}
-	src, err := os.Open(dbPath)
-	if err != nil {
-		return "", err
-	}
-	defer src.Close()
-	name := "labor_control_" + time.Now().Format("20060102_150405.000") + "_ux6_fast.json"
-	dstPath := filepath.Join(backupDir, name)
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		return "", err
-	}
-	_, cpErr := io.Copy(dst, src)
-	closeErr := dst.Close()
-	if cpErr != nil {
-		return "", cpErr
-	}
-	if closeErr != nil {
-		return "", closeErr
-	}
-	return dstPath, nil
+    if err := os.MkdirAll(backupDir, 0700); err != nil { return "", err }
+    if err := os.Chmod(backupDir, 0700); err != nil { return "", err }
+    src, err := os.Open(dbPath)
+    if err != nil { return "", err }
+    defer src.Close()
+    name := "labor_control_" + time.Now().Format("20060102_150405.000000000") + "_ux6_fast.json"
+    dstPath := filepath.Join(backupDir, name)
+    dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+    if err != nil { return "", err }
+    success := false
+    defer func() { if !success { _ = os.Remove(dstPath) } }()
+    if _, err := io.Copy(dst, src); err != nil { _ = dst.Close(); return "", err }
+    if err := dst.Sync(); err != nil { _ = dst.Close(); return "", err }
+    if err := dst.Close(); err != nil { return "", err }
+    success = true
+    return dstPath, nil
 }
 
+// atomicWrite first persists a private temporary file on the same filesystem.
+// If rename fails, NEVER remove the existing target. The previous database
+// must remain intact under any ordinary write/permissions error.
 func atomicWrite(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	tmp := path + ".ux6.tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err == nil {
-		return nil
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return os.Rename(tmp, path)
+    dir := filepath.Dir(path)
+    if err := os.MkdirAll(dir, 0700); err != nil { return err }
+    tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+    if err != nil { return err }
+    defer os.Remove(tmp.Name())
+    if _, err := tmp.Write(data); err != nil { _ = tmp.Close(); return err }
+    if err := tmp.Sync(); err != nil { _ = tmp.Close(); return err }
+    if err := tmp.Close(); err != nil { return err }
+    return os.Rename(tmp.Name(), path)
 }
 
 func toString(v any) string {
