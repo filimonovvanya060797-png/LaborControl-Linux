@@ -1,0 +1,67 @@
+# Experimental desktop shell. Separate from the R11 Go controller workflow.
+name: R11 native desktop GTK build
+on:
+  push:
+    paths:
+      - 'port/desktop/**'
+      - 'port/controller/**'
+      - '.github/workflows/linux-r11-desktop.yml'
+  pull_request:
+    paths:
+      - 'port/desktop/**'
+      - 'port/controller/**'
+      - '.github/workflows/linux-r11-desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r11-gtk-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Compile GTK/WebKit desktop and Go R11 controller
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: port/controller/go.mod
+          cache: false
+      - name: Install Linux native desktop build requirements
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Verify scripts and desktop dependencies
+        shell: bash
+        run: |
+          bash -n port/desktop/build.sh port/desktop/install-user.sh
+          pkg-config --modversion gtk+-3.0 webkit2gtk-4.1
+      - name: Run Go regression tests
+        working-directory: port/controller
+        env:
+          CGO_ENABLED: '0'
+        run: go test -count=1 ./...
+      - name: Build isolated Linux desktop distribution
+        shell: bash
+        run: bash port/desktop/build.sh "$RUNNER_TEMP/laborcontrol-r11-desktop"
+      - name: Check shell without display and library dependencies
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/laborcontrol-r11-desktop/laborcontrol-desktop" --version
+          "$RUNNER_TEMP/laborcontrol-r11-desktop/laborcontrol-desktop" --check
+          ldd "$RUNNER_TEMP/laborcontrol-r11-desktop/laborcontrol-desktop" | tee "$RUNNER_TEMP/gtk-ldd.txt"
+          ! grep -q 'not found' "$RUNNER_TEMP/gtk-ldd.txt"
+      - name: Publish experimental desktop bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: laborcontrol-r11-gtk-desktop-amd64-experimental
+          path: ${{ runner.temp }}/laborcontrol-r11-desktop/
+          if-no-files-found: error
+          retention-days: 14
