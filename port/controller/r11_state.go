@@ -60,7 +60,7 @@ func (h *controller) runStandaloneR11() error {
 	if err != nil {
 		return fmt.Errorf("не удалось открыть локальный адрес %s: %w", listenAddr, err)
 	}
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 1 << 20}
+	srv := &http.Server{Handler: r11LocalOnlyHandler(mux), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 1 << 20}
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("R11 state workspace stopped: %v", err)
@@ -462,10 +462,13 @@ func (h *controller) backupR11StateLocked() (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(h.baseDir, "backups")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	name := "labor_control_" + time.Now().Format("20060102_150405.000") + "_before_r11_change.json"
+	if err := os.Chmod(dir, 0700); err != nil {
+		return "", err
+	}
+	name := "labor_control_" + time.Now().Format("20060102_150405.000000000") + "_before_r11_change.json"
 	path := filepath.Join(dir, name)
 	if err := atomicWrite(path, body); err != nil {
 		return "", err

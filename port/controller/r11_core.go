@@ -432,6 +432,7 @@ func (h *controller) r11EmployeeSave(w http.ResponseWriter, r *http.Request) {
 	h.r11Mutate(w, r, "Карточка сотрудника", func(root map[string]json.RawMessage) (map[string]any, string, error) {
 		body, err := r11BodyMap(w, r, 2<<20)
 		if err != nil { return nil, "", err }
+		if err := r11StrictEmployeePayload(body); err != nil { return nil, "", err }
 		rows, err := r11Array(root, "employees")
 		if err != nil { return nil, "", err }
 		tab, name := r11String(body, "tab_no"), r11String(body, "full_name")
@@ -440,6 +441,7 @@ func (h *controller) r11EmployeeSave(w http.ResponseWriter, r *http.Request) {
 		pos := -1
 		if id > 0 {
 			_, pos = r11FindEmployeeID(rows, id)
+			if pos < 0 { return nil, "", fmt.Errorf("сотрудник id=%d не найден; создание карточки с новым ID отменено", id) }
 		}
 		if pos < 0 {
 			_, duplicate := r11FindEmployee(rows, tab)
@@ -496,6 +498,7 @@ func (h *controller) r11DaySave(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := r11BodyMap(w, r, 8<<20)
 	if err != nil { r11WriteError(w,400,err); return }
+	if err := r11StrictDayPayload(body); err != nil { r11WriteError(w,400,err); return }
 	quick := r.URL.Path == "/api/day/quick-save"
 	h.opMu.Lock()
 	defer h.opMu.Unlock()
@@ -602,6 +605,7 @@ func (h *controller) r11RVDSave(w http.ResponseWriter, r *http.Request) {
 func (h *controller) r11CalendarDaySave(w http.ResponseWriter, r *http.Request) {
 	h.r11Mutate(w,r,"День календаря сохранён",func(root map[string]json.RawMessage)(map[string]any,string,error){
 		body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err}
+		if err:=r11StrictCalendarPayload(body);err!=nil{return nil,"",err}
 		date:=r11String(body,"date");if !r11DateOK(date){return nil,"",fmt.Errorf("неверная дата")}
 		rows,err:=r11Array(root,"calendar");if err!=nil{return nil,"",err}
 		pos:=-1;for i,x:=range rows{if r11String(x,"date")==date{pos=i;break}}
@@ -649,8 +653,13 @@ func (h *controller) r11CalendarImportConfirm(w http.ResponseWriter, r *http.Req
 		rows,err:=r11Array(root,"calendar");if err!=nil{return nil,"",err}
 		pos:=map[string]int{};for i,x:=range rows{pos[r11String(x,"date")]=i}
 		added,updated:=0,0
+		seenIncoming:=map[string]bool{}
 		for _,x:=range incoming{
 			date:=r11String(x,"date");if !r11DateOK(date){return nil,"",fmt.Errorf("неверная дата календаря %q",date)}
+			if seenIncoming[date]{return nil,"",fmt.Errorf("повтор даты календаря %s в одном импорте",date)}
+			seenIncoming[date]=true
+			if err:=r11StrictCalendarPayload(x);err!=nil{return nil,"",fmt.Errorf("дата %s: %w",date,err)}
+			if len(r11Raw(x,"norm_hours"))==0{return nil,"",fmt.Errorf("дата %s: отсутствует норма часов",date)}
 			if i,ok:=pos[date];ok{for k,v:=range x{rows[i][k]=v};updated++}else{rows=append(rows,x);pos[date]=len(rows)-1;added++}
 		}
 		r11SetArray(root,"calendar",rows)
@@ -911,8 +920,8 @@ func (h *controller) r11RevisionActivate(w http.ResponseWriter, r *http.Request)
 			if !ok || string(raw) == "null" { return nil, "", fmt.Errorf("у редакции ID %d отсутствует снимок %s; восстановление отменено",id,col.Snapshot) }
 			var snap []map[string]json.RawMessage
 			if e := json.Unmarshal(raw, &snap); e != nil { return nil, "", fmt.Errorf("снимок %s повреждён: %w",col.Snapshot,e) }
-			for _, item := range snap {
-				if r11Int(item,"employee_id")!=employeeID { return nil,"",fmt.Errorf("снимок %s содержит запись другого сотрудника",col.Snapshot) }
+			if err := r11ValidateRevisionSnapshotRows(col.Key, snap, rows, employeeID); err != nil {
+				return nil, "", err
 			}
 			if snap==nil { snap=[]map[string]json.RawMessage{} }
 			snapshot[col.Key]=snap
@@ -1091,20 +1100,32 @@ func (h *controller) r11CSVImport(w http.ResponseWriter, r *http.Request, events
 	employees,err:=r11Array(root,"employees");if err!=nil{http.Error(w,err.Error(),500);return}
 	days,err:=r11Array(root,"days");if err!=nil{http.Error(w,err.Error(),500);return}
 	events,err:=r11Array(root,"events");if err!=nil{http.Error(w,err.Error(),500);return}
+	// Repeated import of the same SAP/ISAT report must not duplicate an event.
+	csvEventKey:=func(e map[string]json.RawMessage)string{
+		return strings.Join([]string{
+			strconv.FormatInt(r11Int(e,"employee_id"),10),r11String(e,"date_from"),
+			r11String(e,"date_to"),r11String(e,"event_type"),
+			r11String(e,"source_code"),r11String(e,"source"),r11String(e,"note"),
+		},"\\x00")
+	}
+	seenCSVEvents:=map[string]bool{}
+	for _,e:=range events{seenCSVEvents[csvEventKey(e)]=true}
 	applied:=0
 	for rowIndex,row:=range rows[1:]{
 		emp,_:=r11FindEmployee(employees,get(row,"tab_no"));if emp==nil{continue}
 		if eventsOnly {
 			a:=r11NormalizeDate(get(row,"date_from"));if a==""{a=r11NormalizeDate(get(row,"date"))}
 			b:=r11NormalizeDate(get(row,"date_to"));if b==""{b=a};if !r11DateOK(a)||!r11DateOK(b)||b<a{continue}
-			item:=map[string]json.RawMessage{};r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date_from",a);r11Put(item,"date_to",b);r11Put(item,"event_type",get(row,"event_type"));r11Put(item,"source_code",get(row,"source_code"));r11Put(item,"source",get(row,"source"));r11Put(item,"note",get(row,"note"));r11Put(item,"created_at",time.Now().Format(time.RFC3339));events=append(events,item);applied++
+			item:=map[string]json.RawMessage{};r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date_from",a);r11Put(item,"date_to",b);r11Put(item,"event_type",get(row,"event_type"));r11Put(item,"source_code",get(row,"source_code"));r11Put(item,"source",get(row,"source"));r11Put(item,"note",get(row,"note"))
+			key:=csvEventKey(item);if seenCSVEvents[key]{continue}
+			r11Put(item,"id",r11NextID(root));r11Put(item,"created_at",time.Now().Format(time.RFC3339));events=append(events,item);seenCSVEvents[key]=true;applied++
 		} else {
 			date:=r11NormalizeDate(get(row,"date"));if !r11DateOK(date){continue};pos:=-1
 			for i,d:=range days{if r11Int(d,"employee_id")==r11Int(emp,"id")&&r11String(d,"date")==date{pos=i;break}}
 			item:=map[string]json.RawMessage{};if pos>=0{item=days[pos]}else{r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date",date)}
 			r11Put(item,"fact",get(row,"value"));if v:=strings.TrimSpace(get(row,"hours"));v!=""{
 				n,parseErr:=strconv.ParseFloat(strings.ReplaceAll(v,",","."),64)
-				if parseErr!=nil||math.IsNaN(n)||math.IsInf(n,0){
+				if parseErr!=nil||math.IsNaN(n)||math.IsInf(n,0)||n<0||n>24{
 					http.Error(w,fmt.Sprintf("Некорректные часы в строке %d: %q",rowIndex+2,v),http.StatusBadRequest)
 					return
 				}
@@ -1190,7 +1211,14 @@ func (h *controller) r11EmployeeFlightImportConfirm(w http.ResponseWriter, r *ht
 		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err};rows,err:=r11Array(root,"employee_flights");if err!=nil{return nil,"",err};added,updated,skipped:=0,0,0
 		for _,x:=range incoming{employeeID:=r11Int(x,"employee_id");if employeeID==0&&r11String(x,"tab_no")!=""{e,_:=r11FindEmployee(employees,r11String(x,"tab_no"));if e!=nil{employeeID=r11Int(e,"id")}}
 			if _,pos:=r11FindEmployeeID(employees,employeeID);pos<0{skipped++;continue};date:=r11NormalizeDate(r11String(x,"date"));kind:=r11String(x,"kind");if date==""||kind==""{skipped++;continue}
-			replaceID:=r11Int(x,"replace_id");pos:=-1;if replaceID>0{_,pos=r11FindRecordID(rows,replaceID)};if pos<0{for i,old:=range rows{if r11Int(old,"employee_id")==employeeID&&r11String(old,"date")==date&&strings.EqualFold(r11String(old,"kind"),kind){pos=i;break}}}
+			replaceID:=r11Int(x,"replace_id");pos:=-1
+			if replaceID>0{
+				existing,idx:=r11FindRecordID(rows,replaceID)
+				if idx<0{return nil,"",fmt.Errorf("полёт id=%d для замены не найден",replaceID)}
+				if r11Int(existing,"employee_id")!=employeeID{return nil,"",fmt.Errorf("полёт id=%d принадлежит другому сотруднику; замена запрещена",replaceID)}
+				pos=idx
+			}
+			if pos<0{for i,old:=range rows{if r11Int(old,"employee_id")==employeeID&&r11String(old,"date")==date&&strings.EqualFold(r11String(old,"kind"),kind){pos=i;break}}}
 			item:=map[string]json.RawMessage{};if pos>=0{item=rows[pos]}else{r11Put(item,"id",r11NextID(root));r11Put(item,"created_at",time.Now().Format(time.RFC3339))}
 			r11Put(item,"employee_id",employeeID);r11Put(item,"date",date);r11Put(item,"kind",kind);r11Put(item,"collection_point",r11String(x,"collection_point"));r11Put(item,"note",r11String(x,"note"));r11Put(item,"source",r11String(x,"source"));r11Put(item,"updated_at",time.Now().Format(time.RFC3339))
 			if pos>=0{rows[pos]=item;updated++}else{rows=append(rows,item);added++}}

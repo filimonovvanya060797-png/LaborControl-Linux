@@ -1,0 +1,40 @@
+name: R11 JavaScript static audit
+on:
+  push:
+    paths:
+      - 'port/controller/r11_original.html'
+      - 'port/controller/frontend.html'
+      - 'port/controller/tests/**'
+      - '.github/workflows/r11-js-static-audit.yml'
+  pull_request:
+    paths:
+      - 'port/controller/r11_original.html'
+      - 'port/controller/frontend.html'
+      - 'port/controller/tests/**'
+      - '.github/workflows/r11-js-static-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  javascript-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Extract the actual embedded R11 and Tab2 scripts
+        working-directory: port/controller
+        run: |
+          node tests/extract_ui_scripts.cjs
+          node --check tests/.generated/r11_original.js
+          node --check tests/.generated/frontend.js
+      - name: ESLint core undefined-reference and safety audit
+        working-directory: port/controller
+        run: |
+          npx --yes eslint@9.39.1 --no-config-lookup --config tests/eslint.config.mjs tests/.generated/r11_original.js tests/.generated/frontend.js
