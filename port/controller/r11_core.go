@@ -653,8 +653,13 @@ func (h *controller) r11CalendarImportConfirm(w http.ResponseWriter, r *http.Req
 		rows,err:=r11Array(root,"calendar");if err!=nil{return nil,"",err}
 		pos:=map[string]int{};for i,x:=range rows{pos[r11String(x,"date")]=i}
 		added,updated:=0,0
+		seenIncoming:=map[string]bool{}
 		for _,x:=range incoming{
 			date:=r11String(x,"date");if !r11DateOK(date){return nil,"",fmt.Errorf("неверная дата календаря %q",date)}
+			if seenIncoming[date]{return nil,"",fmt.Errorf("повтор даты календаря %s в одном импорте",date)}
+			seenIncoming[date]=true
+			if err:=r11StrictCalendarPayload(x);err!=nil{return nil,"",fmt.Errorf("дата %s: %w",date,err)}
+			if len(r11Raw(x,"norm_hours"))==0{return nil,"",fmt.Errorf("дата %s: отсутствует норма часов",date)}
 			if i,ok:=pos[date];ok{for k,v:=range x{rows[i][k]=v};updated++}else{rows=append(rows,x);pos[date]=len(rows)-1;added++}
 		}
 		r11SetArray(root,"calendar",rows)
@@ -1108,7 +1113,7 @@ func (h *controller) r11CSVImport(w http.ResponseWriter, r *http.Request, events
 			item:=map[string]json.RawMessage{};if pos>=0{item=days[pos]}else{r11Put(item,"id",r11NextID(root));r11Put(item,"employee_id",r11Int(emp,"id"));r11Put(item,"date",date)}
 			r11Put(item,"fact",get(row,"value"));if v:=strings.TrimSpace(get(row,"hours"));v!=""{
 				n,parseErr:=strconv.ParseFloat(strings.ReplaceAll(v,",","."),64)
-				if parseErr!=nil||math.IsNaN(n)||math.IsInf(n,0){
+				if parseErr!=nil||math.IsNaN(n)||math.IsInf(n,0)||n<0||n>24{
 					http.Error(w,fmt.Sprintf("Некорректные часы в строке %d: %q",rowIndex+2,v),http.StatusBadRequest)
 					return
 				}
@@ -1194,7 +1199,14 @@ func (h *controller) r11EmployeeFlightImportConfirm(w http.ResponseWriter, r *ht
 		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err};rows,err:=r11Array(root,"employee_flights");if err!=nil{return nil,"",err};added,updated,skipped:=0,0,0
 		for _,x:=range incoming{employeeID:=r11Int(x,"employee_id");if employeeID==0&&r11String(x,"tab_no")!=""{e,_:=r11FindEmployee(employees,r11String(x,"tab_no"));if e!=nil{employeeID=r11Int(e,"id")}}
 			if _,pos:=r11FindEmployeeID(employees,employeeID);pos<0{skipped++;continue};date:=r11NormalizeDate(r11String(x,"date"));kind:=r11String(x,"kind");if date==""||kind==""{skipped++;continue}
-			replaceID:=r11Int(x,"replace_id");pos:=-1;if replaceID>0{_,pos=r11FindRecordID(rows,replaceID)};if pos<0{for i,old:=range rows{if r11Int(old,"employee_id")==employeeID&&r11String(old,"date")==date&&strings.EqualFold(r11String(old,"kind"),kind){pos=i;break}}}
+			replaceID:=r11Int(x,"replace_id");pos:=-1
+			if replaceID>0{
+				existing,idx:=r11FindRecordID(rows,replaceID)
+				if idx<0{return nil,"",fmt.Errorf("полёт id=%d для замены не найден",replaceID)}
+				if r11Int(existing,"employee_id")!=employeeID{return nil,"",fmt.Errorf("полёт id=%d принадлежит другому сотруднику; замена запрещена",replaceID)}
+				pos=idx
+			}
+			if pos<0{for i,old:=range rows{if r11Int(old,"employee_id")==employeeID&&r11String(old,"date")==date&&strings.EqualFold(r11String(old,"kind"),kind){pos=i;break}}}
 			item:=map[string]json.RawMessage{};if pos>=0{item=rows[pos]}else{r11Put(item,"id",r11NextID(root));r11Put(item,"created_at",time.Now().Format(time.RFC3339))}
 			r11Put(item,"employee_id",employeeID);r11Put(item,"date",date);r11Put(item,"kind",kind);r11Put(item,"collection_point",r11String(x,"collection_point"));r11Put(item,"note",r11String(x,"note"));r11Put(item,"source",r11String(x,"source"));r11Put(item,"updated_at",time.Now().Format(time.RFC3339))
 			if pos>=0{rows[pos]=item;updated++}else{rows=append(rows,item);added++}}
