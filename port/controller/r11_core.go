@@ -432,6 +432,7 @@ func (h *controller) r11EmployeeSave(w http.ResponseWriter, r *http.Request) {
 	h.r11Mutate(w, r, "Карточка сотрудника", func(root map[string]json.RawMessage) (map[string]any, string, error) {
 		body, err := r11BodyMap(w, r, 2<<20)
 		if err != nil { return nil, "", err }
+		if err := r11StrictEmployeePayload(body); err != nil { return nil, "", err }
 		rows, err := r11Array(root, "employees")
 		if err != nil { return nil, "", err }
 		tab, name := r11String(body, "tab_no"), r11String(body, "full_name")
@@ -440,6 +441,7 @@ func (h *controller) r11EmployeeSave(w http.ResponseWriter, r *http.Request) {
 		pos := -1
 		if id > 0 {
 			_, pos = r11FindEmployeeID(rows, id)
+			if pos < 0 { return nil, "", fmt.Errorf("сотрудник id=%d не найден; создание карточки с новым ID отменено", id) }
 		}
 		if pos < 0 {
 			_, duplicate := r11FindEmployee(rows, tab)
@@ -496,6 +498,7 @@ func (h *controller) r11DaySave(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := r11BodyMap(w, r, 8<<20)
 	if err != nil { r11WriteError(w,400,err); return }
+	if err := r11StrictDayPayload(body); err != nil { r11WriteError(w,400,err); return }
 	quick := r.URL.Path == "/api/day/quick-save"
 	h.opMu.Lock()
 	defer h.opMu.Unlock()
@@ -602,6 +605,7 @@ func (h *controller) r11RVDSave(w http.ResponseWriter, r *http.Request) {
 func (h *controller) r11CalendarDaySave(w http.ResponseWriter, r *http.Request) {
 	h.r11Mutate(w,r,"День календаря сохранён",func(root map[string]json.RawMessage)(map[string]any,string,error){
 		body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err}
+		if err:=r11StrictCalendarPayload(body);err!=nil{return nil,"",err}
 		date:=r11String(body,"date");if !r11DateOK(date){return nil,"",fmt.Errorf("неверная дата")}
 		rows,err:=r11Array(root,"calendar");if err!=nil{return nil,"",err}
 		pos:=-1;for i,x:=range rows{if r11String(x,"date")==date{pos=i;break}}
