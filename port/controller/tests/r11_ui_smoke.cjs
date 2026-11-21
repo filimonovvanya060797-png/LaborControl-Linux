@@ -71,7 +71,8 @@ function execute(config, state) {
   );
   for (const step of config) {
     errors.length=0;
-    const code='current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
+    const prepare=step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '';
+    const code=prepare+'current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
     try {vm.runInContext(code,ctx,{filename:'render-'+step.module+'-'+(step.section||''),timeout:15000})}
     catch (error) {throw new Error(step.label+': uncaught JavaScript error: '+error.stack)}
     const page=getElement('page').innerHTML;
@@ -131,4 +132,23 @@ execute([
   {module:'employees',label:'450 drivers / employees'},
   {module:'autograf',section:'graph',label:'450 drivers / active graph'}
 ],large);
+
+// Regression path for viewing an archived official revision after a second
+// official version becomes active; this exercises historic snapshot rendering.
+const archived = fixture(true);
+archived.data.graph_revisions.push(
+  {id:10,employee_id:1,number:1,status:'ARCHIVED',
+   effective_date:'2026-11-01',reason:'Исходный график',
+   days_snapshot:[...archived.data.days],events_snapshot:[],
+   notes_snapshot:[],colors_snapshot:[]},
+  {id:11,employee_id:1,number:2,status:'ACTIVE',
+   effective_date:'2026-11-21',reason:'Новая редакция',
+   days_snapshot:[],events_snapshot:[],notes_snapshot:[],colors_snapshot:[]}
+);
+execute([
+  {module:'autograf',section:'graph',label:'second official revision / current'},
+  {module:'autograf',section:'versions',label:'second official revision / versions'},
+  {module:'autograf',section:'graph',archived:true,label:'archived official revision / monthly snapshot'},
+  {module:'autograf',section:'graph',archived:true,view:'year',label:'archived official revision / year snapshot'}
+],archived);
 console.log('R11 UI render smoke: PASS');
