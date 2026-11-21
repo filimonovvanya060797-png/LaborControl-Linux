@@ -166,7 +166,7 @@ func main() {
 		showMessage("LaborControl", "Не удалось запустить ускоритель: "+err.Error())
 		return
 	}
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: r11LocalOnlyHandler(mux), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("controller server stopped: %v", err)
@@ -257,9 +257,8 @@ func requestExistingStart() (string, error) {
 
 func (h *controller) wrap(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+		// Do not grant arbitrary websites access to private local LaborControl data.
+		// The outer r11LocalOnlyHandler also blocks foreign Host and Origin values.
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
