@@ -125,7 +125,13 @@ execute([{
   verifyPage(page) {
     assert.ok(page.includes('Ошибок: 1'),'error count should be visible');
     assert.ok(page.includes('disabled style="opacity:.45;cursor:not-allowed"'),'button should be disabled');
-    assert.ok(page.includes('Импорт недоступен: в файле 1 ошибок'),'reason for blocking import should be visible');
+    assert.ok(page.includes('Импорт недоступен: в файле 1 ошибка'),'reason for blocking import should be visible');
+    assert.ok(page.includes('Записей из выбранного Excel/CSV: 1'),'import preview must explain what rows represent');
+    assert.ok(page.includes('Пока ничего не сохранено'),'preview must explain data are not yet imported');
+    assert.ok(page.includes('<th>№ записи</th>'),'preview table must number Excel records');
+    assert.ok(page.includes('Не указан табельный номер'),'missing tab must be precise');
+    assert.ok(page.includes('«Проверить файл»'),'guidance must reference actual button');
+    assert.ok(!page.includes('Прочитать файл заново'),'guidance must never invent a button');
   }
 }],fixture(true));
 execute([{
