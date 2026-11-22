@@ -30,6 +30,9 @@ const (
 //go:embed frontend.html
 var frontendHTML []byte
 
+//go:embed employee_guide_v7.html
+var employeeGuideV7HTML []byte
+
 type dayPatch struct {
 	TabNo     string  `json:"tab_no"`
 	Date      string  `json:"date"`
@@ -157,6 +160,7 @@ func main() {
 	mux.HandleFunc("/stage", h.wrap(h.stage))
 	mux.HandleFunc("/apply", h.wrap(h.apply))
 	mux.HandleFunc("/core-shutdown", h.wrap(h.coreShutdownOnly))
+	mux.HandleFunc("/help/employees", h.serveEmployeeGuide)
 	h.registerTab2(mux)
 	mux.HandleFunc("/api/shutdown", h.wrap(h.shutdownAll))
 	mux.HandleFunc("/api/", h.proxyAPI)
@@ -850,6 +854,18 @@ func toInt(v any) int {
 	default:
 		return 0
 	}
+}
+
+
+func (h *controller) serveEmployeeGuide(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/help/employees" || r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	_, _ = w.Write(employeeGuideV7HTML)
 }
 
 func (h *controller) serveFrontend(w http.ResponseWriter, r *http.Request) {
