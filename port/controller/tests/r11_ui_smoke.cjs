@@ -71,7 +71,7 @@ function execute(config, state) {
   );
   for (const step of config) {
     errors.length=0;
-    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '');
+    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
     const code=prepare+'current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
     try {vm.runInContext(code,ctx,{filename:'render-'+step.module+'-'+(step.section||''),timeout:15000})}
     catch (error) {throw new Error(step.label+': uncaught JavaScript error: '+error.stack)}
@@ -80,6 +80,7 @@ function execute(config, state) {
     assert.ok(!page.includes('Ошибка интерфейса'),step.label+': '+page.match(/Ошибка интерфейса[\s\S]{0,220}/)?.[0]);
     if(step.technicalVersion)assert.ok(page.includes('id="versionPreview"'),step.label+': selected technical version preview not shown');
     assert.equal(errors.length,0,step.label+': console.error: '+errors.join('\n'));
+    if (typeof step.verifyPage === 'function') step.verifyPage(page);
     process.stdout.write('OK '+step.label+'\n');
   }
 }
@@ -89,6 +90,22 @@ const screens = ['dashboard','employees','rvd','check','events','journal','help'
 const sections = ['graph','vacations','constructor','summary','calendar','types','flights','versions']
   .map(section=>({module:'autograf',section,label:'autograf / '+section}));
 execute([{module:'dashboard',label:'empty dashboard'},{module:'employees',label:'empty employees'},{module:'autograf',label:'empty autograf'}],fixture(false));
+
+const probationDisplay = fixture(true);
+probationDisplay.data.employees[0].probation = true;
+probationDisplay.data.employees[0].probation_end = '2027-04-14';
+execute([{
+  module:'autograf',section:'graph',label:'probation status is shown only once',
+  lifecycleStatus:{kind:'neutral',code:'probation',text:'Испытательный срок до 14.04.2027.'},
+  verifyPage(page) {
+    assert.ok(page.includes('<b>Испытательный срок</b>'),'probation heading missing');
+    assert.equal((page.match(/до 14\\.04\\.2027\\./g)||[]).length,1,
+      'the probation end date must be rendered once, not as a duplicate line');
+    assert.ok(!page.includes('Испытательный срок: до 14.04.2027.'),
+      'legacy duplicate prefix must not be rendered');
+  }
+}],probationDisplay);
+
 execute([...screens,...sections,
   {module:'autograf',section:'graph',view:'year',label:'autograf / yearly graph'}
 ],fixture(true));
