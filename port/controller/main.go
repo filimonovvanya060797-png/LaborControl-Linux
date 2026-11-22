@@ -501,21 +501,13 @@ func (h *controller) stage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if len(p.Days) == 0 {
-		http.Error(w, "пустой пакет дней", http.StatusBadRequest)
-		return
-	}
-	if len(p.Days) > 100000 {
-		http.Error(w, "слишком большой пакет", http.StatusBadRequest)
-		return
-	}
 	for i := range p.Days {
 		p.Days[i].TabNo = strings.TrimSpace(p.Days[i].TabNo)
 		p.Days[i].Date = strings.TrimSpace(p.Days[i].Date)
-		if p.Days[i].TabNo == "" || p.Days[i].Date == "" {
-			http.Error(w, fmt.Sprintf("строка %d: нет табельного номера или даты", i+1), http.StatusBadRequest)
-			return
-		}
+	}
+	if err := r11ValidateStageDays(p.Days); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	b, err := json.Marshal(p)
 	if err != nil {
@@ -578,6 +570,7 @@ func (h *controller) apply(w http.ResponseWriter, r *http.Request) {
 }
 
 func applyDays(dbPath, backupDir string, p stagePayload) (map[string]any, error) {
+	if err := r11ValidateStageDays(p.Days); err != nil { return nil, err }
 	b, err := os.ReadFile(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось открыть базу %s: %w", dbPath, err)
@@ -744,9 +737,11 @@ func normalizeStage(p *stagePayload) error {
 			if len(r) < 5 {
 				return fmt.Errorf("строка d[%d]: ожидалось 5 значений", i)
 			}
+			hours, err := r11StageHours(r[3])
+			if err != nil { return fmt.Errorf("строка d[%d]: %w", i, err) }
 			p.Days = append(p.Days, dayPatch{
 				TabNo: toString(r[0]), Date: toString(r[1]), Plan: toString(r[2]),
-				PlanHours: toFloat(r[3]), State: toString(r[4]),
+				PlanHours: hours, State: toString(r[4]),
 			})
 		}
 	}
