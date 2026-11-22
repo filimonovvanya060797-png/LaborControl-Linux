@@ -74,3 +74,30 @@ func TestEmployeeUIUsesSafeEditAndAtomicImports(t *testing.T) {
         }
     })}
 }
+
+func TestEmployeeImportPreviewExplainsRowsAndFileCheck(t *testing.T) {
+    for _,tc:=range []struct{name,html string}{
+        {"R11",string(r11OriginalHTML)},
+        {"Tab2",string(frontendHTML)},
+    } {
+        t.Run(tc.name,func(t *testing.T){
+            for _,expected:=range []string{
+                "Проверить файл</button>",
+                "Записей из выбранного Excel/CSV:",
+                "Каждая строка — данные одного человека из файла",
+                "Пока ничего не сохранено",
+                "<th>№ записи</th>",
+                "Не указан табельный номер",
+                "Не указано ФИО",
+                "employeeImportErrorWord",
+            } {
+                if !strings.Contains(tc.html,expected) {
+                    t.Errorf("import preview missing %q",expected)
+                }
+            }
+            if strings.Contains(tc.html,"onclick=\"readEmployeeFile()\">Прочитать файл</button>") {
+                t.Fatal("employee import still uses ambiguous button label")
+            }
+        })
+    }
+}
