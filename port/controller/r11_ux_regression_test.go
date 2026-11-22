@@ -35,7 +35,8 @@ func TestR11UIIncludesReadableGraphNotesAndLocalConfirm(t *testing.T){
     s:=string(r11OriginalHTML)
     for _,v:=range []string{
         "Примечание сотрудника",
-        "Испытательный срок: ",
+        "<b>Испытательный срок</b>",
+        "replace(/^Испытательный срок\\s+/",
         "Подтверждение удаления",
         "Да, удалить",
         "Подтверждение импорта сотрудников",
@@ -44,5 +45,8 @@ func TestR11UIIncludesReadableGraphNotesAndLocalConfirm(t *testing.T){
         "/api/employee/points/template.xlsx",
     }{
         if !strings.Contains(s,v){t.Fatalf("R11 UI missing %q",v)}
+    }
+    if strings.Contains(s, "Испытательный срок: ") {
+        t.Fatal("R11 UI still contains the duplicate static probation line")
     }
 }
