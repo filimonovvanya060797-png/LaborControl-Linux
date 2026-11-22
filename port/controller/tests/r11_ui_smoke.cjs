@@ -71,7 +71,7 @@ function execute(config, state) {
   );
   for (const step of config) {
     errors.length=0;
-    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.staleTab ? 'agTab='+JSON.stringify(step.staleTab)+';' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
+    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.staleTab ? 'agTab='+JSON.stringify(step.staleTab)+';' : '')+(step.invalidEmployeeImport ? 'empImport={name:"errors.xlsx",head:["Табельный №","ФИО"],rows:[["","Без номера"]]};empImportMap={tab_no:"0",full_name:"1",position:"",unit:"",hire_date:"",fire_date:""};' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
     const code=prepare+'current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
     try {vm.runInContext(code,ctx,{filename:'render-'+step.module+'-'+(step.section||''),timeout:15000})}
     catch (error) {throw new Error(step.label+': uncaught JavaScript error: '+error.stack)}
@@ -80,6 +80,10 @@ function execute(config, state) {
     assert.ok(!page.includes('Ошибка интерфейса'),step.label+': '+page.match(/Ошибка интерфейса[\s\S]{0,220}/)?.[0]);
     if(step.technicalVersion)assert.ok(page.includes('id="versionPreview"'),step.label+': selected technical version preview not shown');
     assert.equal(errors.length,0,step.label+': console.error: '+errors.join('\n'));
+    if (step.checkCsv) {
+      const parsed=vm.runInContext('parseCsvText('+JSON.stringify(step.checkCsv.text)+')',ctx);
+      assert.equal(JSON.stringify(parsed),JSON.stringify(step.checkCsv.expected),step.label+': CSV parsed incorrectly');
+    }
     if (typeof step.verifyPage === 'function') step.verifyPage(page);
     process.stdout.write('OK '+step.label+'\n');
   }
@@ -106,6 +110,31 @@ execute([{
   }
 }],deletedSelectedEmployee);
 
+
+const unsafeName=fixture(true);
+unsafeName.data.employees[0].full_name="О'Брайен \"Иван\" <Проверка>";
+execute([{module:'employees',label:'employee edit button is safe for quotes and HTML',
+  verifyPage(page) {
+    assert.ok(page.includes('onclick="editEmpById(1)"'),'edit should use stable numeric ID');
+    assert.ok(!page.includes("onclick='editEmp("),'employee JSON must not be interpolated into attributes');
+    assert.ok(page.includes('О&#39;Брайен'),'apostrophe should be HTML-escaped');
+  }}],unsafeName);
+execute([{
+  module:'employees',label:'invalid import button is disabled with an explanation',
+  invalidEmployeeImport:true,
+  verifyPage(page) {
+    assert.ok(page.includes('Ошибок: 1'),'error count should be visible');
+    assert.ok(page.includes('disabled style="opacity:.45;cursor:not-allowed"'),'button should be disabled');
+    assert.ok(page.includes('Импорт недоступен: в файле 1 ошибок'),'reason for blocking import should be visible');
+  }
+}],fixture(true));
+execute([{
+  module:'employees',label:'quoted CSV with newlines and separators',
+  checkCsv:{
+    text:'Табельный №;ФИО;Подразделение\\r\\n42;"О""Нил; Иван\\nПетрович";"Колонна 2"\\r\\n',
+    expected:[['Табельный №','ФИО','Подразделение'],['42','О"Нил; Иван\\nПетрович','Колонна 2']]
+  }
+}],fixture(true));
 
 const probationDisplay = fixture(true);
 probationDisplay.data.employees[0].probation = true;
