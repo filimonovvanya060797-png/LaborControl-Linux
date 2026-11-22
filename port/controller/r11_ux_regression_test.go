@@ -50,3 +50,27 @@ func TestR11UIIncludesReadableGraphNotesAndLocalConfirm(t *testing.T){
         t.Fatal("R11 UI still contains the duplicate static probation line")
     }
 }
+
+func TestEmployeeUIUsesSafeEditAndAtomicImports(t *testing.T) {
+    cases:=[]struct{name,html string}{
+        {"R11",string(r11OriginalHTML)},
+        {"Tab2",string(frontendHTML)},
+    }
+    for _,tc:=range cases {t.Run(tc.name,func(t *testing.T){
+        if strings.Contains(tc.html,"onclick='editEmp(") {
+            t.Fatal("employee data interpolated into HTML attribute: apostrophes can break editing")
+        }
+        for _,required:=range []string{
+            "editEmpById(",
+            "Импорт недоступен: в файле ",
+            "Неверная дата приёма",
+            "Неверная дата увольнения",
+            "Повтор табельного внутри файла",
+            "ФИО не совпадает с карточкой",
+            "/api/employee/batch",
+            "CSV: незакрытая кавычка",
+        }{
+            if !strings.Contains(tc.html,required) {t.Errorf("employee UI missing %q",required)}
+        }
+    })}
+}
