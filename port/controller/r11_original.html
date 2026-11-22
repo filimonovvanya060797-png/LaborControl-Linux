@@ -814,4 +814,73 @@ async function flightWizardSaveAndCalc(btn){let p=employeeFlightImport;if(!p)ret
 .cal-period-box{margin-top:10px;padding:12px;border:1px solid #cbdaf0;border-radius:10px;background:#f4f8ff}.cal-period-box .toolbar{align-items:end}.cal-period-result{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.cal-period-result span{background:#fff;border:1px solid #dbe4f1;border-radius:7px;padding:6px 9px;font-size:12px}.cal-period-result .cal-period-hours{border-color:#9fb9ef;background:#eef4ff;font-size:13px}.cal-period-result .cal-period-missing{border-color:#edcf86;background:#fff8e6;color:#765500}
 .employee-lifecycle{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:10px 0 14px;padding:11px 13px;border-radius:9px;border:1px solid #d9e1ec;border-left:5px solid #8a96a8;background:#f8fafc;font-size:12px}.employee-lifecycle b{display:block;margin-bottom:3px}.employee-lifecycle.warn{border-left-color:#d69a16;background:#fff8e5;border-color:#efd79c}.employee-lifecycle.bad{border-left-color:#c53b3b;background:#fff0f0;border-color:#efc3c3}.employee-lifecycle.good{border-left-color:#2f8b55;background:#edf9f2;border-color:#bfe4ce}.employee-lifecycle.neutral{border-left-color:#6f7f95;background:#f5f7fa}.badge.neutral{background:#edf0f4;color:#445064}.badge.good{background:#e8f7ee;color:#267347}.badge.warn{background:#fff2cc;color:#8a5c00}.badge.bad{background:#ffe8e8;color:#9c2e2e}@media(max-width:800px){.employee-lifecycle{align-items:flex-start;flex-direction:column}}
 .day-card.range-selected,.day-mini-wrap.range-selected .day-mini{background-image:none!important}
-</style>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        </body></html>
+</style>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+<!-- Единый русскоязычный выбор файлов: ID, accept и API-обработчики сохранены. -->
+<style id="r11-ru-file-picker-style">
+.r11-file-hidden{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:0!important;clip-path:inset(50%)!important;pointer-events:none!important}
+.r11-file-button{display:inline-flex;align-items:center;justify-content:center;max-width:100%;padding:7px 12px;border-radius:7px;border:1px solid #b4c2da;background:#f0f4ff;color:#1b345b;font:inherit;cursor:pointer;white-space:nowrap}
+.r11-file-button:hover{background:#e1eafe}
+.r11-file-button:focus-visible{outline:3px solid #2855d9;outline-offset:2px}
+.r11-file-status{display:inline-block;max-width:100%;margin-left:9px;color:#425066;font-size:13px;overflow-wrap:anywhere}
+</style>
+<script id="r11-ru-file-picker-script">
+(function () {
+  'use strict';
+  const names = {
+    empxlsx:'сотрудников', pointxlsx:'пунктов сбора и вылета',
+    flxlsx:'рейсов', effile:'полётов сотрудников', eventfile:'событий',
+    vacxlsx:'отпусков', calfile6:'производственного календаря',
+    factfile:'фактических данных CSV', t2fact:'факта',
+    t2szrvd:'СЗ РВД', stateFile:'резервной копии JSON',
+    'r11-windows-file':'экспорта Windows R11'
+  };
+  function enhance(input) {
+    if (!input.id || input.dataset.r11PickerReady === '1') return;
+    input.dataset.r11PickerReady = '1';
+    input.classList.add('r11-file-hidden');
+    input.tabIndex = -1;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'r11-file-button';
+    button.textContent = 'Выбрать файл';
+    button.setAttribute('aria-controls', input.id);
+    button.setAttribute('aria-label', 'Выбрать файл ' + (names[input.id] || 'для загрузки'));
+    const status = document.createElement('span');
+    status.className = 'r11-file-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    const refresh = () => {
+      const file = input.files && input.files[0];
+      status.textContent = file ? 'Выбран файл: ' + file.name : 'Файл не выбран';
+    };
+    input.addEventListener('change', refresh);
+    button.addEventListener('click', () => input.click());
+    input.insertAdjacentElement('afterend', status);
+    input.insertAdjacentElement('afterend', button);
+    refresh();
+  }
+  function enhanceInside(node) {
+    if (node.nodeType !== 1 && node.nodeType !== 9) return;
+    if (node.matches && node.matches('input[type="file"]')) enhance(node);
+    node.querySelectorAll('input[type="file"]').forEach(enhance);
+  }
+  enhanceInside(document);
+  // R11 перестраивает экран целиком при смене раздела: новые поля тоже русифицируются.
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      if ((node.matches && node.matches('input[type="file"]')) ||
+          (node.querySelector && node.querySelector('input[type="file"]'))) enhanceInside(node);
+    }
+  });
+  observer.observe(document.body || document.documentElement, {childList:true,subtree:true});
+  document.addEventListener('reset', event => {
+    window.setTimeout(() => {
+      event.target.querySelectorAll('input[type="file"]').forEach(input => {
+        input.dispatchEvent(new Event('change'));
+      });
+    }, 0);
+  }, true);
+})();
+</script>
+</body></html>
