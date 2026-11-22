@@ -71,7 +71,7 @@ function execute(config, state) {
   );
   for (const step of config) {
     errors.length=0;
-    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.staleTab ? 'agTab='+JSON.stringify(step.staleTab)+';' : '')+(step.invalidEmployeeImport ? 'empImport={name:"errors.xlsx",head:["Табельный №","ФИО"],rows:[["","Без номера"]]};empImportMap={tab_no:"0",full_name:"1",position:"",unit:"",hire_date:"",fire_date:""};' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
+    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.staleTab ? 'agTab='+JSON.stringify(step.staleTab)+';' : '')+(step.invalidEmployeeImport ? 'empImport={name:"errors.xlsx",head:["Табельный №","ФИО"],rows:[["","Без номера"]]};empImportMap={tab_no:"0",full_name:"1",position:"",unit:"",hire_date:"",fire_date:""};' : '')+(step.incompatiblePoint ? 'empPointImport={name:"points.xlsx",head:["Табельный №","ФИО","Пункт сбора"],rows:[["990001","Тестов Иван Иванович","Уфа"]],map:{t:0,f:1,p:2,n:-1}};' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
     const code=prepare+'current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
     try {vm.runInContext(code,ctx,{filename:'render-'+step.module+'-'+(step.section||''),timeout:15000})}
     catch (error) {throw new Error(step.label+': uncaught JavaScript error: '+error.stack)}
@@ -136,6 +136,20 @@ execute([{
   }
 }],fixture(true));
 
+
+const incompatiblePoint=fixture(true);
+incompatiblePoint.data.employees[0].schedule_type='Тюмень-А';
+incompatiblePoint.data.schedule_types.push({
+  id:3,collection_point:'Тюмень',name:'Тюмень-А',phase:'A',active:true
+});
+execute([{module:'employees',incompatiblePoint:true,
+  label:'point import cannot silently retain incompatible assigned schedule',
+  verifyPage(page) {
+    assert.ok(page.includes('Вид графика «Тюмень-А» не подходит к пункту «Уфа»'),
+      'incompatible schedule should be rejected before point import');
+    assert.ok(page.includes('Ошибок: 1'),'point import must flag one error');
+  }
+}],incompatiblePoint);
 const probationDisplay = fixture(true);
 probationDisplay.data.employees[0].probation = true;
 probationDisplay.data.employees[0].probation_end = '2027-04-14';
