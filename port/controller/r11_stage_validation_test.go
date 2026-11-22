@@ -21,6 +21,7 @@ func TestR11StageRejectsInvalidDatesAndHoursWithoutOverwritingPreparedPackage(t 
         {"legacy bad hours", `{"d":[["T-901","2026-11-20","1/8","not-a-number","WORK"]]}`},
         {"legacy negative hours", `{"d":[["T-901","2026-11-20","1/8",-4,"WORK"]]}`},
         {"legacy invalid date", `{"d":[["T-901","2026-13-20","1/8",8,"WORK"]]}`},
+        {"duplicate day", `{"days":[{"tab_no":"T-901","date":"2026-11-20","plan":"1/8","plan_hours":8},{"tab_no":"t-901","date":"2026-11-20","plan":"1/8","plan_hours":8}]}`},
     } {
         t.Run(tc.name,func(t *testing.T){
             if err:=os.WriteFile(staged,[]byte(valid),0600); err!=nil {t.Fatal(err)}
