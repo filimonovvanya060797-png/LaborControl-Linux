@@ -71,7 +71,7 @@ function execute(config, state) {
   );
   for (const step of config) {
     errors.length=0;
-    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
+    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.staleTab ? 'agTab='+JSON.stringify(step.staleTab)+';' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
     const code=prepare+'current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
     try {vm.runInContext(code,ctx,{filename:'render-'+step.module+'-'+(step.section||''),timeout:15000})}
     catch (error) {throw new Error(step.label+': uncaught JavaScript error: '+error.stack)}
@@ -90,6 +90,22 @@ const screens = ['dashboard','employees','rvd','check','events','journal','help'
 const sections = ['graph','vacations','constructor','summary','calendar','types','flights','versions']
   .map(section=>({module:'autograf',section,label:'autograf / '+section}));
 execute([{module:'dashboard',label:'empty dashboard'},{module:'employees',label:'empty employees'},{module:'autograf',label:'empty autograf'}],fixture(false));
+
+const deletedSelectedEmployee = fixture(true);
+deletedSelectedEmployee.data.graph_revisions.push({
+  id:10,employee_id:99,number:1,status:'ARCHIVED',
+  effective_date:'2026-11-01',reason:'Удалённый сотрудник',
+  days_snapshot:[],events_snapshot:[],notes_snapshot:[],colors_snapshot:[]
+});
+execute([{
+  module:'autograf',section:'graph',label:'deleted selected employee falls back to remaining employee',
+  staleTab:'990099',archived:true,
+  verifyPage(page) {
+    assert.ok(page.includes('Тестов Иван Иванович'),'remaining employee should become selected');
+    assert.ok(!page.includes('Просмотр архивной редакции'),'stale archive preview must be cleared');
+  }
+}],deletedSelectedEmployee);
+
 
 const probationDisplay = fixture(true);
 probationDisplay.data.employees[0].probation = true;
