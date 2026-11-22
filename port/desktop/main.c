@@ -76,9 +76,10 @@ static gchar *local_http_request(const gchar *request) {
 static void show_error(const gchar *message) {
     GtkWidget *dialog = gtk_message_dialog_new(
         desktop.window != NULL ? GTK_WINDOW(desktop.window) : NULL,
-        GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+        GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_NONE,
         "%s", message);
     gtk_window_set_title(GTK_WINDOW(dialog), "LaborControl R11");
+    gtk_dialog_add_button(GTK_DIALOG(dialog), "_Закрыть", GTK_RESPONSE_CLOSE);
     gtk_dialog_run(GTK_DIALOG(dialog));
     gtk_widget_destroy(dialog);
 }
