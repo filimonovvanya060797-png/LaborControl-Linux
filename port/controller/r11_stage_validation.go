@@ -41,6 +41,7 @@ func r11StageHours(v any) (float64, error) {
 func r11ValidateStageDays(days []dayPatch) error {
     if len(days) == 0 { return fmt.Errorf("пустой пакет дней") }
     if len(days) > 100000 { return fmt.Errorf("слишком большой пакет") }
+    seen := make(map[string]bool, len(days))
     for i, day := range days {
         if strings.TrimSpace(day.TabNo) == "" {
             return fmt.Errorf("строка %d: нет табельного номера", i+1)
@@ -51,6 +52,11 @@ func r11ValidateStageDays(days []dayPatch) error {
         if math.IsNaN(day.PlanHours) || math.IsInf(day.PlanHours, 0) || day.PlanHours < 0 || day.PlanHours > 24 {
             return fmt.Errorf("строка %d: плановые часы должны быть от 0 до 24", i+1)
         }
+        key := strings.ToLower(strings.TrimSpace(day.TabNo)) + "|" + strings.TrimSpace(day.Date)
+        if seen[key] {
+            return fmt.Errorf("строка %d: повторяющийся день %s для сотрудника %s", i+1, day.Date, day.TabNo)
+        }
+        seen[key] = true
     }
     return nil
 }
