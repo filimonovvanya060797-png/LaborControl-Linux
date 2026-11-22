@@ -216,8 +216,8 @@ let s=employeeLifecycleStatus(e),memo=cleanEmpNotes(e.notes||''),out='';
 if(memo&&(where==='graph'||where==='revision'))out+='<div class="employee-lifecycle neutral"><div><b>Примечание сотрудника</b><div style="white-space:pre-wrap">'+esc(memo)+'</div></div></div>';
 if(e.probation){
  let statusText=s?s.text:(e.probation_end?'до '+formatDate(e.probation_end):'дата окончания не указана');
- statusText=String(statusText).replace(/^Испытательный срок\\s+/,'');
- out+='<div class="employee-lifecycle '+(s?s.kind:'warn')+'"><div><b>Испытательный срок</b><div>'+esc(statusText)+'</div></div>'+((s&&(s.code==='probation-over'||s.code==='probation-main-empty'))?'<button class="soft" onclick="setAgSection(\\'versions\\')">Перейти к редакциям</button>':'')+'</div>';
+ statusText=String(statusText).replace(/^Испытательный срок\s+/,'');
+ out+='<div class="employee-lifecycle '+(s?s.kind:'warn')+'"><div><b>Испытательный срок</b><div>'+esc(statusText)+'</div></div>'+((s&&(s.code==='probation-over'||s.code==='probation-main-empty'))?'<button class="soft" onclick="setAgSection(\'versions\')">Перейти к редакциям</button>':'')+'</div>';
 }else if(s)out+='<div class="employee-lifecycle '+s.kind+'"><div><b>Статус сотрудника</b><div>'+esc(s.text)+'</div></div></div>';
 return out;
 }
