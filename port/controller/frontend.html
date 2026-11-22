@@ -144,7 +144,7 @@ function employeeStatusHtml(e,where='graph'){
 if(!e)return'';
 let s=employeeLifecycleStatus(e),memo=cleanEmpNotes(e.notes||''),out='';
 if(memo&&(where==='graph'||where==='revision'))out+='<div class="employee-lifecycle neutral"><div><b>Примечание сотрудника</b><div style="white-space:pre-wrap">'+esc(memo)+'</div></div></div>';
-if(e.probation){
+if(e.probation&&(!s||String(s.code||'').startsWith('probation'))){
  let statusText=s?s.text:(e.probation_end?'до '+formatDate(e.probation_end):'дата окончания не указана');
  statusText=String(statusText).replace(/^Испытательный срок\s+/,'');
  out+='<div class="employee-lifecycle '+(s?s.kind:'warn')+'"><div><b>Испытательный срок</b><div>'+esc(statusText)+'</div></div>'+((s&&(s.code==='probation-over'||s.code==='probation-main-empty'))?'<button class="soft" onclick="setAgSection(\'versions\')">Перейти к редакциям</button>':'')+'</div>';
@@ -350,11 +350,11 @@ function empMapSel(k,label,req=false){let v=empImportMap[k]??'',o='<option value
 function importRowObj(r){let get=k=>{let i=Number(empImportMap[k]);return empImportMap[k]===''?'':String(r[i]??'').trim()},hire=get('hire_date'),fire=get('fire_date');return{tab_no:get('tab_no'),full_name:get('full_name'),position:get('position'),unit:get('unit'),hire_date:normDate(hire),fire_date:normDate(fire),hire_date_raw:hire,fire_date_raw:fire}}
 function importClassify(){if(!empImport)return[];let seen=new Set();return empImport.rows.map((r,i)=>{let o=importRowObj(r);
 if(!o.tab_no||!o.full_name)return{o,status:'error',msg:'Нет табельного или ФИО',i};
-if(seen.has(o.tab_no))return{o,status:'error',msg:'Повтор табельного внутри файла',i};seen.add(o.tab_no);
+let tabKey=o.tab_no.toLowerCase();if(seen.has(tabKey))return{o,status:'error',msg:'Повтор табельного внутри файла',i};seen.add(tabKey);
 if(o.hire_date_raw&&!o.hire_date)return{o,status:'error',msg:'Неверная дата приёма',i};
 if(o.fire_date_raw&&!o.fire_date)return{o,status:'error',msg:'Неверная дата увольнения',i};
 if(o.hire_date&&o.fire_date&&o.fire_date<o.hire_date)return{o,status:'error',msg:'Дата увольнения раньше даты приёма',i};
-let e=state.data.employees.find(x=>String(x.tab_no)===o.tab_no);
+let e=state.data.employees.find(x=>String(x.tab_no).toLowerCase()===o.tab_no.toLowerCase());
 if(!e)return{o,status:'new',msg:'Новый',i};
 let hire=o.hire_date||e.hire_date||'',fire=o.fire_date||e.fire_date||'';
 if(hire&&fire&&fire<hire)return{o,e,status:'error',msg:'Дата увольнения раньше даты приёма',i};
@@ -379,7 +379,7 @@ function csvCell(v){v=String(v??'');return/[;"\r\n]/.test(v)?'"'+v.replace(/"/g,
 function downloadPointTemplate(){let a=state.data.employees.filter(e=>!String(e.collection_point||'').trim());if(!a.length)return toast('У всех сотрудников пункт сбора уже заполнен');let r=['Табельный №;ФИО;Подразделение;Пункт сбора / вылета;Примечание',...a.map(e=>[e.tab_no,e.full_name,e.unit||'','',''].map(csvCell).join(';'))],b=new Blob(['\ufeff'+r.join('\r\n')],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(b),x=document.createElement('a');x.href=u;x.download='Шаблон_пунктов_сбора_'+todayISO()+'.csv';x.click();setTimeout(()=>URL.revokeObjectURL(u),500);toast(`Шаблон: ${a.length} сотрудников без пункта сбора`)}
 function pointMap(h){let a=h.map(empNormHeader),p=q=>{let i=a.findIndex(x=>q.some(v=>x.includes(v)));return i<0?-1:i};return{t:p(['табель','табномер','tabno']),f:p(['фио','фамилияимяотчество','сотрудник']),p:p(['пунктсбора','пунктвылета','городвылета','вылет']),n:p(['примеч'])}}
 async function readPointFile(){let f=document.getElementById('pointxlsx')?.files[0];if(!f)return toast('Выберите заполненный шаблон',true);try{let r=f.name.toLowerCase().endsWith('.csv')?parseCsvText(await f.text()):await xlsxRows(f);r=r.filter(x=>x.some(v=>String(v??'').trim()));if(r.length<2)throw Error('В шаблоне нет строк');let m=pointMap(r[0]);if(m.t<0||m.p<0)throw Error('Не найдены колонки Табельный № и Пункт сбора / вылета');empPointImport={name:f.name,head:r[0],rows:r.slice(1),map:m};render();toast(`Шаблон прочитан: ${r.length-1} строк`)}catch(e){toast(e.message,true)}}
-function pointClassify(){if(!empPointImport)return[];let m=empPointImport.map,seen=new Set();return empPointImport.rows.map(r=>{let g=i=>i<0?'':String(r[i]??'').trim(),t=g(m.t),f=g(m.f),raw=g(m.p),note=g(m.n),e=state.data.employees.find(x=>String(x.tab_no)===t),p=pointResolve(raw);if(!t)return{t,f,raw,note,s:'error',msg:'Нет табельного'};if(seen.has(t))return{t,f,raw,note,s:'error',msg:'Повтор табельного'};seen.add(t);if(!e)return{t,f,raw,note,s:'error',msg:'Сотрудник не найден'};if(!raw)return{t,f,raw,note,e,s:'empty',msg:'Пункт не заполнен'};if(!p)return{t,f,raw,note,e,s:'error',msg:'Пункт не найден в справочнике'};let nm=f&&empNormHeader(f)!==empNormHeader(e.full_name);if(nm)return{t,f,raw,note,e,p,s:'error',msg:'ФИО не совпадает с карточкой: '+e.full_name};let same=empNormHeader(e.collection_point)===empNormHeader(p);return{t,f,raw,note,e,p,s:same?'same':'change',msg:same?'Без изменений':'Будет обновлён'}})}
+function pointClassify(){if(!empPointImport)return[];let m=empPointImport.map,seen=new Set();return empPointImport.rows.map(r=>{let g=i=>i<0?'':String(r[i]??'').trim(),t=g(m.t),f=g(m.f),raw=g(m.p),note=g(m.n),e=state.data.employees.find(x=>String(x.tab_no).toLowerCase()===t.toLowerCase()),p=pointResolve(raw);if(!t)return{t,f,raw,note,s:'error',msg:'Нет табельного'};if(seen.has(t.toLowerCase()))return{t,f,raw,note,s:'error',msg:'Повтор табельного'};seen.add(t.toLowerCase());if(!e)return{t,f,raw,note,s:'error',msg:'Сотрудник не найден'};if(!raw)return{t,f,raw,note,e,s:'empty',msg:'Пункт не заполнен'};if(!p)return{t,f,raw,note,e,s:'error',msg:'Пункт не найден в справочнике'};let nm=f&&empNormHeader(f)!==empNormHeader(e.full_name);if(nm)return{t,f,raw,note,e,p,s:'error',msg:'ФИО не совпадает с карточкой: '+e.full_name};let same=empNormHeader(e.collection_point)===empNormHeader(p);return{t,f,raw,note,e,p,s:same?'same':'change',msg:same?'Без изменений':'Будет обновлён'}})}
 async function importPoints(){
 let a=pointClassify();if(a.some(x=>x.s==='error')){toast('Исправьте все ошибки в шаблоне перед записью',true);return}
 let q=a.filter(x=>x.s==='change');if(!q.length)return toast('Нет пунктов сбора для обновления');
