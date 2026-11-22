@@ -190,6 +190,65 @@ static void on_download_started(WebKitWebContext *context, WebKitDownload *downl
                      G_CALLBACK(on_choose_download_destination), NULL);
 }
 
+/* Русские системные окна для старых alert/confirm/prompt в R11 и Tab2.
+ * Синхронный API JavaScript сохраняется: отказ и закрытие безопасны. */
+static gboolean on_script_dialog(WebKitWebView *web, WebKitScriptDialog *script_dialog,
+                                  gpointer user_data) {
+    (void)web;
+    (void)user_data;
+    WebKitScriptDialogType type = webkit_script_dialog_get_dialog_type(script_dialog);
+    const gchar *message = webkit_script_dialog_get_message(script_dialog);
+    if (type == WEBKIT_SCRIPT_DIALOG_ALERT || type == WEBKIT_SCRIPT_DIALOG_CONFIRM) {
+        GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(desktop.window),
+            GTK_DIALOG_MODAL, type == WEBKIT_SCRIPT_DIALOG_ALERT ?
+            GTK_MESSAGE_INFO : GTK_MESSAGE_QUESTION,
+            GTK_BUTTONS_NONE, "%s", message != NULL ? message : "");
+        gtk_window_set_title(GTK_WINDOW(dialog),
+            type == WEBKIT_SCRIPT_DIALOG_ALERT ? "Сообщение LaborControl" : "Подтверждение LaborControl");
+        if (type == WEBKIT_SCRIPT_DIALOG_CONFIRM) {
+            gtk_dialog_add_button(GTK_DIALOG(dialog), "_Отмена", GTK_RESPONSE_CANCEL);
+            gtk_dialog_add_button(GTK_DIALOG(dialog), "_Подтвердить", GTK_RESPONSE_ACCEPT);
+            gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
+        } else {
+            gtk_dialog_add_button(GTK_DIALOG(dialog), "_Закрыть", GTK_RESPONSE_CLOSE);
+        }
+        gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+        if (type == WEBKIT_SCRIPT_DIALOG_CONFIRM)
+            webkit_script_dialog_confirm_set_confirmed(script_dialog, response == GTK_RESPONSE_ACCEPT);
+        gtk_widget_destroy(dialog);
+        return TRUE;
+    }
+    if (type == WEBKIT_SCRIPT_DIALOG_PROMPT) {
+        GtkWidget *dialog = gtk_dialog_new_with_buttons(
+            "Ввод данных LaborControl", GTK_WINDOW(desktop.window), GTK_DIALOG_MODAL,
+            "_Отмена", GTK_RESPONSE_CANCEL, "_Подтвердить", GTK_RESPONSE_ACCEPT, NULL);
+        GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+        GtkWidget *label = gtk_label_new(message != NULL ? message : "");
+        GtkWidget *entry = gtk_entry_new();
+        gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
+        gtk_widget_set_halign(label, GTK_ALIGN_START);
+        gtk_widget_set_margin_start(label, 12);
+        gtk_widget_set_margin_end(label, 12);
+        gtk_widget_set_margin_top(label, 12);
+        gtk_widget_set_margin_bottom(label, 8);
+        gtk_widget_set_margin_start(entry, 12);
+        gtk_widget_set_margin_end(entry, 12);
+        gtk_widget_set_margin_bottom(entry, 12);
+        const gchar *default_text = webkit_script_dialog_prompt_get_default_text(script_dialog);
+        if (default_text != NULL) gtk_entry_set_text(GTK_ENTRY(entry), default_text);
+        gtk_box_pack_start(GTK_BOX(content), label, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(content), entry, FALSE, FALSE, 0);
+        gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
+        gtk_widget_show_all(dialog);
+        gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+        if (response == GTK_RESPONSE_ACCEPT)
+            webkit_script_dialog_prompt_set_text(script_dialog, gtk_entry_get_text(GTK_ENTRY(entry)));
+        gtk_widget_destroy(dialog);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 static gboolean try_open_page(gpointer user_data) {
     (void)user_data;
     if (desktop.closing || desktop.page_opened) return G_SOURCE_REMOVE;
@@ -263,6 +322,7 @@ static void on_activate(GtkApplication *application, gpointer user_data) {
     g_object_set(webkit_web_view_get_settings(desktop.web),
                  "enable-javascript", TRUE, NULL);
     g_signal_connect(desktop.web, "decide-policy", G_CALLBACK(on_decide_navigation), NULL);
+    g_signal_connect(desktop.web, "script-dialog", G_CALLBACK(on_script_dialog), NULL);
     WebKitWebContext *context = webkit_web_view_get_context(desktop.web);
     g_signal_connect(context, "download-started", G_CALLBACK(on_download_started), NULL);
     gtk_container_add(GTK_CONTAINER(desktop.window), GTK_WIDGET(desktop.web));
