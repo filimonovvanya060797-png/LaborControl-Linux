@@ -71,7 +71,7 @@ function execute(config, state) {
   );
   for (const step of config) {
     errors.length=0;
-    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.staleTab ? 'agTab='+JSON.stringify(step.staleTab)+';' : '')+(step.invalidEmployeeImport ? 'empImport={name:"errors.xlsx",head:["Табельный №","ФИО"],rows:[["","Без номера"]]};empImportMap={tab_no:"0",full_name:"1",position:"",unit:"",hire_date:"",fire_date:""};' : '')+(step.incompatiblePoint ? 'empPointImport={name:"points.xlsx",head:["Табельный №","ФИО","Пункт сбора"],rows:[["990001","Тестов Иван Иванович","Уфа"]],map:{t:0,f:1,p:2,n:-1}};' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
+    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.staleTab ? 'agTab='+JSON.stringify(step.staleTab)+';' : '')+(step.invalidEmployeeImport ? 'empImport={name:"errors.xlsx",head:["Табельный №","ФИО"],rows:[["","Без номера"]]};empImportMap={tab_no:"0",full_name:"1",position:"",unit:"",hire_date:"",fire_date:""};' : '')+(step.illustratedHelp ? 'guideSelected="employees-illustrated";guideIllustratedAnchor="excelload";' : '')+(step.incompatiblePoint ? 'empPointImport={name:"points.xlsx",head:["Табельный №","ФИО","Пункт сбора"],rows:[["990001","Тестов Иван Иванович","Уфа"]],map:{t:0,f:1,p:2,n:-1}};' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
     const code=prepare+'current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
     try {vm.runInContext(code,ctx,{filename:'render-'+step.module+'-'+(step.section||''),timeout:15000})}
     catch (error) {throw new Error(step.label+': uncaught JavaScript error: '+error.stack)}
@@ -110,6 +110,16 @@ execute([{
   }
 }],deletedSelectedEmployee);
 
+
+execute([{
+  module:'help',label:'illustrated employee handbook is accessible inside the Instruction tab',
+  illustratedHelp:true,
+  verifyPage(page){
+    assert.ok(page.includes('id="employeeGuideFrame"'),'embedded illustration iframe must be visible');
+    assert.ok(page.includes('src="/help/employees#excelload"'),'deep-link for import must resolve');
+    assert.ok(page.includes('Ко всем главам'),'there must be a way back to general instructions');
+  }
+}],fixture(true));
 
 const unsafeName=fixture(true);
 unsafeName.data.employees[0].full_name="О'Брайен \"Иван\" <Проверка>";
