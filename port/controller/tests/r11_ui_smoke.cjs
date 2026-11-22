@@ -99,7 +99,7 @@ execute([{
   lifecycleStatus:{kind:'neutral',code:'probation',text:'Испытательный срок до 14.04.2027.'},
   verifyPage(page) {
     assert.ok(page.includes('<b>Испытательный срок</b>'),'probation heading missing');
-    assert.equal((page.match(/до 14\\.04\\.2027\\./g)||[]).length,1,
+    assert.equal((page.match(/до 14\.04\.2027\./g)||[]).length,1,
       'the probation end date must be rendered once, not as a duplicate line');
     assert.ok(!page.includes('Испытательный срок: до 14.04.2027.'),
       'legacy duplicate prefix must not be rendered');
