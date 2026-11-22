@@ -49,6 +49,8 @@ jobs:
           node --version
           node --check port/controller/tests/r11_ui_smoke.cjs
           node port/controller/tests/r11_ui_smoke.cjs
+          node --check port/controller/tests/r11_file_picker_smoke.cjs
+          node port/controller/tests/r11_file_picker_smoke.cjs
       - name: Run Go regression tests
         working-directory: port/controller
         env:
