@@ -423,3 +423,145 @@ func TestR11SchedulePairRejectWrongPhaseForExistingNumberedPartner(t *testing.T)
 	if rec.Code!=http.StatusBadRequest { t.Fatalf("wrong phase must refuse: %d %s",rec.Code,rec.Body.String()) }
 	if len(readSchedulePairRows(t,h))!=2 { t.Fatal("wrong-phase link wrote new rows") }
 }
+
+func r11CycleRowsForTest(t *testing.T, h *controller, key string) []map[string]json.RawMessage {
+	t.Helper()
+	root:=readR11CoreState(t,h)
+	var rows []map[string]json.RawMessage
+	if len(root[key])>0 {
+		if err:=json.Unmarshal(root[key],&rows);err!=nil {t.Fatalf("%s: %v",key,err)}
+	}
+	return rows
+}
+func r11MakeCycleForTest(t *testing.T,h *controller,point,first,second,name string,withTypes,adoptOnly bool) int64 {
+	t.Helper()
+	b:=fmt.Sprintf("{\"collection_point\":%q,\"first\":%q,\"second\":%q,\"year\":2026,\"create_types\":%t,\"adopt_only\":%t,\"name\":%q,\"phase\":\"A\"}",point,first,second,withTypes,adoptOnly,name)
+	resp:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/save",b)
+	if resp.Code!=http.StatusOK {t.Fatalf("create/adopt cycle: %d %s",resp.Code,resp.Body.String())}
+	var result map[string]any
+	if err:=json.Unmarshal(resp.Body.Bytes(),&result);err!=nil{t.Fatal(err)}
+	return int64(result["cycle_id"].(float64))
+}
+func TestR11IndependentSurgutCyclesAtomicSave(t *testing.T) {
+	h:=newR11TestController(t)
+	a:=r11MakeCycleForTest(t,h,"Сургут","2026-01-07","2026-01-29","Сург-Тал-Сург 7",true,false)
+	b:=r11MakeCycleForTest(t,h,"Сургут","2026-01-16","2026-02-13","Сург-Тал-Сург 16",true,false)
+	if a==b||a<=0||b<=0 {t.Fatalf("cycle identifiers must be distinct: %d %d",a,b)}
+	cycles:=r11CycleRowsForTest(t,h,"flight_cycles")
+	if len(cycles)!=2 {t.Fatalf("expected exactly 2 independent cycles, got %d",len(cycles))}
+	counts:=map[int64]int{}
+	for _,x:=range r11CycleRowsForTest(t,h,"flight_dates"){
+		counts[r11Int(x,"cycle_id")]++
+		if q:=r11Int(x,"sequence");q!=1&&q!=2 {t.Fatalf("flight without proper phase: %+v",x)}
+	}
+	if counts[a]!=14 || counts[b]!=13 {t.Fatalf("Surgut flight counts must be 14/13, got %+v",counts)}
+	types:=r11CycleRowsForTest(t,h,"schedule_types")
+	if len(types)!=4 {t.Fatalf("expected four types for two separate pairs, got %d",len(types))}
+	want:=[]struct{title,pair,phase string;id int64}{
+		{"Сург-Тал-Сург 7","Сург-Тал-Сург 7.","A",a},
+		{"Сург-Тал-Сург 7.","Сург-Тал-Сург 7","B",a},
+		{"Сург-Тал-Сург 16","Сург-Тал-Сург 16.","A",b},
+		{"Сург-Тал-Сург 16.","Сург-Тал-Сург 16","B",b},
+	}
+	for i,x:=range want {
+		y:=types[i]
+		if r11String(y,"name")!=x.title||r11String(y,"pair_name")!=x.pair||
+		   r11String(y,"phase")!=x.phase||r11Int(y,"cycle_id")!=x.id{
+			t.Fatalf("type %d not independently bound: %+v",i,y)
+		}
+	}
+	// Repeating the same save cannot duplicate dates or types.
+	again:=r11MakeCycleForTest(t,h,"Сургут","2026-01-07","2026-01-29","Сург-Тал-Сург 7",true,false)
+	if again!=a || len(r11CycleRowsForTest(t,h,"flight_dates"))!=27 ||
+		len(r11CycleRowsForTest(t,h,"schedule_types"))!=4 {
+		t.Fatal("repeat cycle save created duplicate or lost identifier")
+	}
+}
+func TestR11CycleAdoptPreservesExistingLegacyDatesWithoutRebuilding(t *testing.T) {
+	h:=newR11TestController(t)
+	legacy:=[]struct{date,sequence string}{
+		{"2026-01-07","Первая последовательность рейса"},
+		{"2026-01-29","Вторая последовательность рейса"},
+	}
+	for _,x:=range legacy{
+		note:=x.sequence+". Цикл от 07.01.2026 / 29.01.2026"
+		body:=fmt.Sprintf("{\"collection_point\":\"Сургут\",\"date\":%q,\"note\":%q,\"source\":\"Ручной ввод\"}",x.date,note)
+		rec:=callR11Core(h,http.MethodPost,"/api/autograf/flight/save",body)
+		if rec.Code!=http.StatusOK{t.Fatalf("legacy save: %d %s",rec.Code,rec.Body.String())}
+	}
+	original:=r11CycleRowsForTest(t,h,"flight_dates")
+	if len(original)!=2 {t.Fatal("legacy setup failed")}
+	cid:=r11MakeCycleForTest(t,h,"Сургут","2026-01-07","2026-01-29","Сург-Тал-Сург 7",true,true)
+	after:=r11CycleRowsForTest(t,h,"flight_dates")
+	if len(after)!=2 {t.Fatalf("adopt_only invented %d extra dates",len(after)-2)}
+	for i,x:=range after {
+		if r11Int(x,"id")!=r11Int(original[i],"id")||r11String(x,"note")!=r11String(original[i],"note")||
+			r11Int(x,"cycle_id")!=cid||r11Int(x,"sequence")!=int64(i+1){
+			t.Fatalf("legacy date was overwritten: %+v",x)
+		}
+	}
+	types:=r11CycleRowsForTest(t,h,"schedule_types")
+	if len(types)!=2||r11Int(types[0],"cycle_id")!=cid||r11Int(types[1],"cycle_id")!=cid{
+		t.Fatalf("adopt did not create bound pair: %+v",types)
+	}
+}
+func TestR11CycleFlightCorrectionKeepsOtherFlightsAndPlans(t *testing.T){
+	h:=newR11TestController(t)
+	cid:=r11MakeCycleForTest(t,h,"Сургут","2026-01-07","2026-01-29","Сург-Тал-Сург 7",true,false)
+	otherId:=r11MakeCycleForTest(t,h,"Сургут","2026-01-16","2026-02-13","Сург-Тал-Сург 16",true,false)
+	before:=r11CycleRowsForTest(t,h,"flight_dates")
+	var target int64
+	var oldDates=map[int64]string{}
+	for _,x:=range before{
+		oldDates[r11Int(x,"id")]=r11String(x,"date")
+		if r11Int(x,"cycle_id")==cid&&r11String(x,"date")=="2026-01-29"{target=r11Int(x,"id")}
+	}
+	if target<=0 {t.Fatal("missing Jan 29 reference flight")}
+	// Recorded work plan is never implicitly touched by editing the source flight.
+	emp:=callR11Core(h,http.MethodPost,"/api/employee/save",
+		"{\"tab_no\":\"SYN-9001\",\"full_name\":\"Тестовый сотрудник\",\"collection_point\":\"Сургут\",\"schedule_type\":\"Сург-Тал-Сург 7\"}")
+	if emp.Code!=http.StatusOK {t.Fatalf("employee setup %d %s",emp.Code,emp.Body.String())}
+	day:=callR11Core(h,http.MethodPost,"/api/day/save",
+		"{\"TabNo\":\"SYN-9001\",\"Date\":\"2026-01-30\",\"Plan\":\"1/11\",\"PlanHours\":11}")
+	if day.Code!=http.StatusOK {t.Fatalf("saved plan setup %d %s",day.Code,day.Body.String())}
+	daysBefore:=string(readR11CoreState(t,h)["days"])
+	change:=fmt.Sprintf("{\"id\":%d,\"date\":\"2026-01-25\",\"reason\":\"Согласован перенос рейса\"}",target)
+	rec:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/flight/move",change)
+	if rec.Code!=http.StatusOK {t.Fatalf("move failed: %d %s",rec.Code,rec.Body.String())}
+	after:=r11CycleRowsForTest(t,h,"flight_dates")
+	if len(after)!=len(before) {t.Fatalf("date move changed flight count: %d %d",len(before),len(after))}
+	for _,x:=range after{
+		id:=r11Int(x,"id")
+		want:=oldDates[id]
+		if id==target {
+			want="2026-01-25"
+			if r11String(x,"adjusted_from")!="2026-01-29"||r11Int(x,"cycle_id")!=cid||r11Int(x,"sequence")!=2{
+				t.Fatalf("corrected date lost cycle/sequence: %+v",x)
+			}
+		}
+		if r11String(x,"date")!=want {t.Fatalf("unrelated flight changed: id=%d got=%s expected=%s",id,r11String(x,"date"),want)}
+		if id!=target && r11Int(x,"cycle_id")==otherId && oldDates[id]!=r11String(x,"date"){
+			t.Fatal("other independent cycle was modified")
+		}
+	}
+	if string(readR11CoreState(t,h)["days"])!=daysBefore {t.Fatal("flight correction changed employee plans")}
+	// The former generic editor must no longer mutate dates of a bound cycle.
+	bypass:=callR11Core(h,http.MethodPost,"/api/autograf/flight/save",
+		fmt.Sprintf("{\"id\":%d,\"collection_point\":\"Сургут\",\"date\":\"2026-01-24\"}",target))
+	if bypass.Code!=http.StatusBadRequest {t.Fatalf("generic editor bypassed safety guard: %d",bypass.Code)}
+	// A new date coinciding with a date of the SAME cycle must be rejected.
+	bad:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/flight/move",
+		fmt.Sprintf("{\"id\":%d,\"date\":\"2026-02-26\",\"reason\":\"ошибочный перенос\"}",target))
+	if bad.Code!=http.StatusBadRequest {t.Fatalf("same-cycle conflict not rejected: %d",bad.Code)}
+	if len(r11CycleRowsForTest(t,h,"flight_dates"))!=27 {t.Fatal("rejected operation changed state")}
+}
+func TestR11TwoCyclesMayContainSameCalendarDateWithoutOverwrite(t *testing.T) {
+	h:=newR11TestController(t)
+	a:=r11MakeCycleForTest(t,h,"Сургут","2026-01-01","2026-01-29","Сург-Тал-Сург 1",true,false)
+	b:=r11MakeCycleForTest(t,h,"Сургут","2026-01-29","2026-02-26","Сург-Тал-Сург 29",true,false)
+	found:=map[int64]bool{}
+	for _,x:=range r11CycleRowsForTest(t,h,"flight_dates"){
+		if r11String(x,"date")=="2026-01-29"{found[r11Int(x,"cycle_id")]=true}
+	}
+	if len(found)!=2||!found[a]||!found[b] {t.Fatalf("same calendar day must belong to two distinct cycles: %+v",found)}
+}
