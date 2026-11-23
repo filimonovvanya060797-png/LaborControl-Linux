@@ -981,7 +981,7 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 			if match!=nil {
 				oldSeq:=r11Int(match,"sequence")
 				if oldSeq>0 && oldSeq!=int64(v.seq) {return nil,"",fmt.Errorf("ДП %s имеет иную последовательность",v.date)}
-				if oldSeq==0 && seq:=r11CycleSequence(r11String(match,"note")); seq!=0 && seq!=v.seq {
+				if oldSeq==0 && r11CycleSequence(r11String(match,"note"))!=0 && r11CycleSequence(r11String(match,"note"))!=v.seq {
 					return nil,"",fmt.Errorf("ДП %s принадлежит другой последовательности",v.date)
 				}
 				r11Put(match,"cycle_id",cid);r11Put(match,"sequence",v.seq);linked++
