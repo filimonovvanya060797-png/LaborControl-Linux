@@ -965,6 +965,15 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 			cycles=append(cycles,cycle)
 		}
 		cid:=r11Int(cycle,"id")
+		// Never regenerate an already individually adjusted flight by rerunning
+		// the original anchors: that would silently undo a real correction.
+		if !adoptOnly {
+			for _,x:=range flights {
+				if r11Int(x,"cycle_id")==cid && r11String(x,"adjusted_from")!="" {
+					return nil,"",fmt.Errorf("у этого цикла уже есть перенесённые рейсы; массовое перестроение требует отдельного подтверждённого сценария")
+				}
+			}
+		}
 		legacyLabel:=r11CycleLegacyLabel(first,second)
 		expected:=[]struct{date string; seq int}{}
 		expected=append(expected,struct{date string;seq int}{first,1},struct{date string;seq int}{second,2})
