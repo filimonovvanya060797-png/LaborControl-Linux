@@ -84,6 +84,28 @@ function execute(config, state) {
       const parsed=vm.runInContext('parseCsvText('+JSON.stringify(step.checkCsv.text)+')',ctx);
       assert.equal(JSON.stringify(parsed),JSON.stringify(step.checkCsv.expected),step.label+': CSV parsed incorrectly');
     }
+    if (step.verifyDate) {
+      for (const [raw,expected] of [
+        ['01.11.2026','2026-11-01'],
+        ['2026-11-18','2026-11-18'],
+        ['',''],
+        ['31.02.2026',null],
+        ['29.02.2024','2024-02-29'],
+        ['29.02.2025',null],
+        ['1.11.2026',null],
+        ['99.12.2026',null],
+      ]) {
+        const actual=vm.runInContext('employeeDateISO('+JSON.stringify(raw)+')',ctx);
+        assert.equal(actual,expected,'employee date conversion failed: '+raw);
+      }
+      vm.runInContext("employeeDateSet('efire','2026-11-18')",ctx);
+      assert.equal(getElement('efiretext').value,'18.11.2026','manual text must sync from ISO');
+      vm.runInContext("employeeDateClear('efire')",ctx);
+      assert.equal(getElement('efiretext').value,'','clear must empty the visible date');
+      assert.equal(getElement('efire').value,'','clear must empty the persisted ISO value');
+      vm.runInContext("document.getElementById('efiretext').value='15.11.2026';employeeDateTyped('efire')",ctx);
+      assert.equal(getElement('efire').value,'2026-11-15','manual input must update the ISO value');
+    }
     if (typeof step.verifyPage === 'function') step.verifyPage(page);
     process.stdout.write('OK '+step.label+'\n');
   }
@@ -118,6 +140,18 @@ execute([{
     assert.ok(page.includes('id="employeeGuideFrame"'),'embedded illustration iframe must be visible');
     assert.ok(page.includes('src="/help/employees#excelload"'),'deep-link for import must resolve');
     assert.ok(page.includes('Ко всем главам'),'there must be a way back to general instructions');
+  }
+}],fixture(true));
+
+execute([{
+  module:'employees',label:'employee editable dates, calendar and help',verifyDate:true,
+  verifyPage(page) {
+    for(const id of ['ehiretext','efiretext','ehirepicker','efirepicker']) {
+      assert.ok(page.includes('id="'+id+'"'),'employee date field missing: '+id);
+    }
+    assert.equal((page.match(/Очистить дату<\/button>/g)||[]).length,2,
+      'both dates need an explicit local clear control');
+    assert.ok(page.includes('ДД.ММ.ГГГГ'),'manual date format must be visible');
   }
 }],fixture(true));
 
