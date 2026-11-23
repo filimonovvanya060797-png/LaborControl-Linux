@@ -42,6 +42,9 @@ SCRIPT = r"""
       r11DateFields.parseDate('29.02.2028') !== '2028-02-29')
     throw Error('Strict date validation failed');
   go('employees');
+  // A probation-end date is intentionally disabled until probation is enabled.
+  document.getElementById('eprob').checked = true;
+  refreshMainReadyState();
   r11DateFields.enhanceInside(document.getElementById('page'));
   const prob = document.getElementById('eprobend');
   const probText = document.querySelector('[data-r11-for="eprobend"]');
