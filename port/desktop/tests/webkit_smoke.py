@@ -36,6 +36,57 @@ SCRIPT = r"""
   for (const section of ['graph','vacations','constructor','summary','calendar','types','flights','versions']) {
     setAgSection(section);check('autograf / '+section);
   }
+  // Unified date input regression: actual GTK WebKit DOM and native ISO values.
+  if (!window.r11DateFields) throw Error('Unified date controls were not loaded');
+  if (r11DateFields.parseDate('31.02.2026') !== null ||
+      r11DateFields.parseDate('29.02.2028') !== '2028-02-29')
+    throw Error('Strict date validation failed');
+  go('employees');
+  r11DateFields.enhanceInside(document.getElementById('page'));
+  const prob = document.getElementById('eprobend');
+  const probText = document.querySelector('[data-r11-for="eprobend"]');
+  if (!prob || !probText || probText.type !== 'text')
+    throw Error('Probation date has no manual input');
+  probText.value = '30112026';
+  probText.dispatchEvent(new Event('input', {bubbles:true}));
+  if (probText.value !== '30.11.2026' || prob.value !== '2026-11-30')
+    throw Error('Probation keyboard date to ISO failed');
+  go('autograf');
+  setAgSection('flights');
+  r11DateFields.enhanceInside(document.getElementById('page'));
+  const flight = document.getElementById('fldate');
+  const flightText = document.querySelector('[data-r11-for="fldate"]');
+  const fcFirstText = document.querySelector('[data-r11-for="fcfirst"]');
+  const fcSecondText = document.querySelector('[data-r11-for="fcsecond"]');
+  if (!flight || !flightText || !fcFirstText || !fcSecondText)
+    throw Error('Flight date or both cycle anchors have no manual controls');
+  const dateWidget = flight.closest('.r11-date-widget');
+  if (dateWidget.querySelectorAll('.r11-date-btn').length !== 2)
+    throw Error('Both calendar and clear buttons must be visible');
+  flightText.value = '18112026';
+  flightText.dispatchEvent(new Event('input', {bubbles:true}));
+  if (flightText.value !== '18.11.2026' || flight.value !== '2026-11-18')
+    throw Error('Flight keyboard date ISO failed');
+  flight.value = '2026-11-20';
+  if (flightText.value !== '20.11.2026')
+    throw Error('Editing existing date did not sync');
+  flightText.value = '31022026';
+  flightText.dispatchEvent(new Event('input', {bubbles:true}));
+  if (flight.value || flightText.getAttribute('aria-invalid') !== 'true')
+    throw Error('Impossible date was accepted');
+  dateWidget.querySelectorAll('.r11-date-btn')[1].click();
+  if (flight.value || flightText.value)
+    throw Error('Clear date did not clear text and native ISO');
+  fcFirstText.value = '23112026';
+  fcFirstText.dispatchEvent(new Event('input', {bubbles:true}));
+  if (document.getElementById('fcfirst').value !== '2026-11-23')
+    throw Error('Flight cycle anchor ISO synchronization failed');
+  setAgSection('calendar');
+  r11DateFields.enhanceInside(document.getElementById('page'));
+  if (document.querySelectorAll('input[type="date"]:not(.emp-date-native)').length !==
+      document.querySelectorAll('.r11-date-row input[type="date"]').length)
+    throw Error('Date fields in another tab were not enhanced');
+  outcome.push({label:'unified editable dates: probation, flights, anchors, invalid dates, clear, redraw',ok:true,error:''});
   setAgSection('graph');agSetView('year');check('autograf / yearly view');
   go('check');
   const frame=document.querySelector('#page iframe');
