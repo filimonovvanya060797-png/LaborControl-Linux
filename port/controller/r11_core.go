@@ -775,6 +775,9 @@ func (h *controller) r11ScheduleTypeSave(w http.ResponseWriter, r *http.Request)
 
 // r11SchedulePairSave creates a mutually linked A/B pair in a single protected mutation.
 // id > 0 completes a previously saved first half; id == 0 creates two new halves.
+// r11SchedulePairSave creates or links two mutually opposite types in a single transaction.
+// A custom partner_name may differ from the source name (e.g. 7 vs 16); the dotted
+// shorthand is only a default and must never be forced on manually selected pairs.
 func (h *controller) r11SchedulePairSave(w http.ResponseWriter, r *http.Request) {
 	h.r11Mutate(w, r, "Пара видов графиков сохранена", func(root map[string]json.RawMessage) (map[string]any, string, error) {
 		body, err := r11BodyMap(w, r, 2<<20)
@@ -782,81 +785,104 @@ func (h *controller) r11SchedulePairSave(w http.ResponseWriter, r *http.Request)
 		rows, err := r11Array(root, "schedule_types")
 		if err != nil { return nil, "", err }
 		id := r11Int(body, "id")
-		if id < 0 { return nil, "", fmt.Errorf("неверный идентификатор вида графика") }
-
-		point := r11String(body, "collection_point")
-		name := r11String(body, "name")
-		phase := r11String(body, "phase")
-		var existing map[string]json.RawMessage
+		if id < 0 { return nil, "", fmt.Errorf("неверный идентификатор графика") }
+		point, name, phase := r11String(body, "collection_point"), r11String(body, "name"), r11String(body, "phase")
+		var source map[string]json.RawMessage
 		if id > 0 {
-			existing, _ = r11FindRecordID(rows, id)
-			if existing == nil { return nil, "", fmt.Errorf("исходный вид графика не найден") }
-			point, name, phase = r11String(existing, "collection_point"), r11String(existing, "name"), r11String(existing, "phase")
+			source, _ = r11FindRecordID(rows, id)
+			if source == nil { return nil, "", fmt.Errorf("исходный график не найден") }
+			point, name, phase = r11String(source, "collection_point"), r11String(source, "name"), r11String(source, "phase")
 		}
 		if point == "" || name == "" || len(point) > 120 || len(name) > 150 {
-			return nil, "", fmt.Errorf("укажите корректные пункт сбора и название вида графика")
+			return nil, "", fmt.Errorf("укажите корректные пункт сбора и название первого графика")
 		}
 		if phase != "A" && phase != "B" {
 			return nil, "", fmt.Errorf("выберите рабочую или свободную первую последовательность")
 		}
-		partner := name + "."
-		if strings.HasSuffix(name, ".") {
-			partner = strings.TrimSuffix(name, ".")
-		} else if id == 0 {
-			// The simple create form always starts with the unpunctuated name.
+		custom := r11String(body, "partner_name")
+		partner := custom
+		if partner == "" && id > 0 { partner = r11String(source, "pair_name") }
+		if partner == "" {
 			partner = name + "."
+			if strings.HasSuffix(name, ".") { partner = strings.TrimSuffix(name, ".") }
 		}
-		if partner == "" || strings.EqualFold(name, partner) {
-			return nil, "", fmt.Errorf("не удалось определить отдельное имя парного графика")
+		if id == 0 && custom == "" && strings.HasSuffix(name, ".") {
+			return nil, "", fmt.Errorf("первое название в автоматическом режиме должно быть без точки")
 		}
-		if id == 0 && strings.HasSuffix(name, ".") {
-			return nil, "", fmt.Errorf("введите название первого вида без точки; точку программа добавит автоматически")
+		if partner == "" || strings.EqualFold(partner, name) || len(partner) > 150 {
+			return nil, "", fmt.Errorf("выберите другое, отличающееся название парного графика")
 		}
-		if len(partner) > 150 { return nil, "", fmt.Errorf("название парного графика слишком длинное") }
 		otherPhase := "A"
 		if phase == "A" { otherPhase = "B" }
 
-		// Never overwrite an existing name or silently repair conflicting phases.
+		var target map[string]json.RawMessage
 		for _, x := range rows {
 			if r11String(x, "collection_point") != point { continue }
-			if strings.EqualFold(r11String(x, "name"), partner) {
-				return nil, "", fmt.Errorf("парный вид %q уже существует; проверьте его фазу и связь в справочнике", partner)
+			title := r11String(x, "name")
+			if strings.EqualFold(title, partner) { target = x }
+			if id == 0 && strings.EqualFold(title, name) {
+				return nil, "", fmt.Errorf("вид %q уже существует; выберите парный в его строке", name)
 			}
-			if id == 0 && strings.EqualFold(r11String(x, "name"), name) {
-				return nil, "", fmt.Errorf("вид %q уже существует; для завершения пары используйте «Создать парный» в его строке", name)
-			}
 		}
-		if id > 0 && r11String(existing, "pair_name") != "" && r11String(existing, "pair_name") != partner {
-			return nil, "", fmt.Errorf("у этого вида уже указан другой парный график; используйте ручную настройку")
-		}
-		if id > 0 && r11String(existing, "pair_name") == "" {
-			r11Put(existing, "pair_name", partner)
-		}
-		active := true
-		note := ""
+		// A previously linked real pair must not be broken by relinking one half.
 		if id > 0 {
-			active = r11Bool(existing, "active")
-			note = r11String(existing, "note")
+			old := r11String(source, "pair_name")
+			if old != "" && !strings.EqualFold(old, partner) {
+				for _, x := range rows {
+					if r11String(x, "collection_point") == point &&
+					   strings.EqualFold(r11String(x, "name"), old) &&
+					   strings.EqualFold(r11String(x, "pair_name"), name) {
+						return nil, "", fmt.Errorf("старый партнёр %q уже связан с этим видом; сначала разберите существующую пару", old)
+					}
+				}
+				if custom == "" { return nil, "", fmt.Errorf("для смены пары явно выберите другой график") }
+			}
 		}
-		create := func(title, pairTitle, schedulePhase string) map[string]json.RawMessage {
+		if target != nil {
+			if r11String(target, "phase") != otherPhase {
+				return nil, "", fmt.Errorf("у графика %q уже задана неподходящая первая последовательность; данные не изменены", partner)
+			}
+			old := r11String(target, "pair_name")
+			if old != "" && !strings.EqualFold(old, name) {
+				return nil, "", fmt.Errorf("график %q уже связан с другим графиком %q", partner, old)
+			}
+		}
+		if id > 0 && target != nil &&
+			strings.EqualFold(r11String(source, "pair_name"), partner) &&
+			strings.EqualFold(r11String(target, "pair_name"), name) {
+			return nil, "", fmt.Errorf("эта пара уже создана")
+		}
+		active, note := true, ""
+		if id > 0 {
+			active, note = r11Bool(source, "active"), r11String(source, "note")
+		}
+		create := func(title, paired, graphPhase string) map[string]json.RawMessage {
 			item := map[string]json.RawMessage{}
 			r11Put(item, "id", r11NextID(root))
 			r11Put(item, "collection_point", point)
 			r11Put(item, "name", title)
-			r11Put(item, "pair_name", pairTitle)
-			r11Put(item, "phase", schedulePhase)
+			r11Put(item, "pair_name", paired)
+			r11Put(item, "phase", graphPhase)
 			r11Put(item, "active", active)
 			r11Put(item, "note", note)
 			return item
 		}
-		added := 1
-		if id == 0 {
+		added, linked := 0, 0
+		if source != nil {
+			r11Put(source, "pair_name", partner)
+		} else {
 			rows = append(rows, create(name, partner, phase))
-			added = 2
+			added++
 		}
-		rows = append(rows, create(partner, name, otherPhase))
+		if target != nil {
+			r11Put(target, "pair_name", name)
+			linked++
+		} else {
+			rows = append(rows, create(partner, name, otherPhase))
+			added++
+		}
 		r11SetArray(root, "schedule_types", rows)
-		return map[string]any{"added": added, "names": []string{name, partner}},
+		return map[string]any{"added": added, "linked": linked, "names": []string{name, partner}},
 			fmt.Sprintf("%s · %s ↔ %s", point, name, partner), nil
 	})
 }
