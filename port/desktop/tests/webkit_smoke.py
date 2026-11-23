@@ -74,6 +74,15 @@ SCRIPT = r"""
   flightText.dispatchEvent(new Event('input', {bubbles:true}));
   if (flight.value || flightText.getAttribute('aria-invalid') !== 'true')
     throw Error('Impossible date was accepted');
+  const fakeSave = document.createElement('button');
+  fakeSave.className = 'primary';
+  let invalidSubmitAllowed = false;
+  fakeSave.addEventListener('click', function () { invalidSubmitAllowed = true; });
+  dateWidget.closest('.panel').appendChild(fakeSave);
+  fakeSave.click();
+  fakeSave.remove();
+  if (invalidSubmitAllowed)
+    throw Error('Invalid date must block save actions instead of silently saving empty ISO');
   dateWidget.querySelectorAll('.r11-date-btn')[1].click();
   if (flight.value || flightText.value)
     throw Error('Clear date did not clear text and native ISO');
