@@ -101,6 +101,16 @@ function execute(config, state) {
         'reversed anchor dates must not create a flight preview');
       assert.equal(state.data.flight_dates.length,0,'preview must not save any flight');
     }
+    if (step.verifyFlightActionSafety) {
+      assert.ok(page.includes('onclick="editFlightById(77)"'),'flight edit should use stable id');
+      assert.ok(page.includes('onclick="deleteFlightById(77)"'),'flight delete should use stable id');
+      assert.ok(!page.includes("onclick='editFlight("),'untrusted flight data must not be interpolated in HTML attributes');
+      vm.runInContext('editFlightById(77)',ctx);
+      assert.equal(getElement('flsubmit').textContent,'Сохранить изменения','edit mode must be clear');
+      vm.runInContext('clearFlightForm()',ctx);
+      assert.equal(getElement('flsubmit').textContent,'Добавить дату','cancel edit must return to new record');
+      assert.equal(getElement('flid').value,'','cancel must clear id');
+    }
     if (step.verifyAutografUX) {
       const el=getElement;
       el('fcpoint').value='Тюмень';el('fcfirst').value='2026-01-09';
@@ -309,6 +319,10 @@ execute([{
   label:'Autograf UX: flight-cycle preview/cancel/retain, vacation and constructor cancel',
   verifyAutografUX:true,
 }],fixture(true));
+const quotedFlight=fixture(true);
+quotedFlight.data.flight_dates.push({id:77,collection_point:'Тюмень',date:'2026-11-22',source:'Ручной ввод',note:"О'Брайен <script>"});
+execute([{module:'autograf',section:'flights',label:'Autograf flight actions safe for quotes and cancellable',verifyFlightActionSafety:true}],quotedFlight);
+
 const unsafeName=fixture(true);
 unsafeName.data.employees[0].full_name="О'Брайен \"Иван\" <Проверка>";
 execute([{module:'employees',label:'employee edit button is safe for quotes and HTML',
