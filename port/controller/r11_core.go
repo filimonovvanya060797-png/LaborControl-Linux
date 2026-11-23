@@ -55,6 +55,10 @@ func (h *controller) r11CoreAPI(w http.ResponseWriter, r *http.Request) {
 		h.r11SchedulePairSave(w, r)
 	case "/api/autograf/schedule-type/delete":
 		h.r11ScheduleTypeDelete(w, r)
+	case "/api/autograf/cycle/save":
+		h.r11CycleSave(w, r)
+	case "/api/autograf/cycle/flight/move":
+		h.r11CycleFlightMove(w, r)
 	case "/api/autograf/flight/save":
 		h.r11FlightSave(w, r)
 	case "/api/autograf/flight/delete":
@@ -785,6 +789,15 @@ func (h *controller) r11SchedulePairSave(w http.ResponseWriter, r *http.Request)
 		rows, err := r11Array(root, "schedule_types")
 		if err != nil { return nil, "", err }
 		id := r11Int(body, "id")
+		// A pair not bound to a specific cycle would produce mixed work plans
+		// when this city has several independent flight cycles.
+		pointForPair := r11String(body,"collection_point")
+		if id==0 && pointForPair!="" {
+			cycles,e:=r11Array(root,"flight_cycles");if e!=nil{return nil,"",e}
+			count:=0
+			for _,c:=range cycles{if r11String(c,"collection_point")==pointForPair {count++}}
+			if count>1 {return nil,"",fmt.Errorf("в пункте %s несколько циклов рейсов: создайте пару из нужного цикла",pointForPair)}
+		}
 		if id < 0 { return nil, "", fmt.Errorf("неверный идентификатор графика") }
 		point, name, phase := r11String(body, "collection_point"), r11String(body, "name"), r11String(body, "phase")
 		var source map[string]json.RawMessage
@@ -896,6 +909,218 @@ func (h *controller) r11ScheduleTypeDelete(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// r11CycleKey reads the legacy R11 note without replacing or erasing it.
+func r11CycleKey(point, first, second string) string {
+	return point + "|" + first + "|" + second
+}
+func r11CycleLegacyLabel(first, second string) string {
+	a, _ := time.Parse("2006-01-02", first)
+	b, _ := time.Parse("2006-01-02", second)
+	return "Цикл от " + a.Format("02.01.2006") + " / " + b.Format("02.01.2006")
+}
+func r11CycleSequence(note string) int {
+	if strings.Contains(note, "Первая последовательность") || strings.Contains(note, "LCSEQ:1") { return 1 }
+	if strings.Contains(note, "Вторая последовательность") || strings.Contains(note, "LCSEQ:2") { return 2 }
+	return 0
+}
+
+// r11CycleSave creates/adopts a complete flight cycle with an optional schedule pair
+// in one journaled, backed-up transaction. Legacy note-marked flights are preserved,
+// never matched to another cycle merely by collection_point and date.
+func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w, r, "Сохранён цикл полётов и виды графиков", func(root map[string]json.RawMessage) (map[string]any, string, error) {
+		body, err := r11BodyMap(w, r, 2<<20)
+		if err != nil { return nil, "", err }
+		point, first, second := r11String(body,"collection_point"), r11String(body,"first"), r11String(body,"second")
+		if point=="" || len(point)>120 || !r11DateOK(first) || !r11DateOK(second) || second<=first {
+			return nil,"",fmt.Errorf("укажите пункт сбора и две последовательные опорные даты")
+		}
+		fst,_:=time.Parse("2006-01-02",first); snd,_:=time.Parse("2006-01-02",second)
+		year:=int(r11Int(body,"year"))
+		if year!=fst.Year() || snd.Year()!=year || year<2000 || year>2100 || snd.Sub(fst)>28*24*time.Hour {
+			return nil,"",fmt.Errorf("первые ДП должны быть в одном году, с интервалом до 28 дней")
+		}
+		wantTypes:=r11Bool(body,"create_types")
+		adoptOnly:=r11Bool(body,"adopt_only")
+		name,phase:=r11String(body,"name"),r11String(body,"phase")
+		if wantTypes && (name==""||len(name)>145||strings.HasSuffix(name,".")||(phase!="A"&&phase!="B")) {
+			return nil,"",fmt.Errorf("укажите название графика без точки и первую рабочую/свободную фазу")
+		}
+		cycles,err:=r11Array(root,"flight_cycles");if err!=nil{return nil,"",err}
+		flights,err:=r11Array(root,"flight_dates");if err!=nil{return nil,"",err}
+		types,err:=r11Array(root,"schedule_types");if err!=nil{return nil,"",err}
+		var cycle map[string]json.RawMessage
+		for _,c:=range cycles {
+			if r11String(c,"collection_point")==point && r11String(c,"first_anchor")==first && r11String(c,"second_anchor")==second {
+				cycle=c;break
+			}
+		}
+		newCycle:=cycle==nil
+		if cycle==nil{
+			cycle=map[string]json.RawMessage{}
+			r11Put(cycle,"id",r11NextID(root))
+			r11Put(cycle,"collection_point",point);r11Put(cycle,"first_anchor",first)
+			r11Put(cycle,"second_anchor",second);r11Put(cycle,"year",year)
+			r11Put(cycle,"created_at",time.Now().Format(time.RFC3339))
+			cycles=append(cycles,cycle)
+		}
+		cid:=r11Int(cycle,"id")
+		// Never regenerate an already individually adjusted flight by rerunning
+		// the original anchors: that would silently undo a real correction.
+		if !adoptOnly {
+			for _,x:=range flights {
+				if r11Int(x,"cycle_id")==cid && r11String(x,"adjusted_from")!="" {
+					return nil,"",fmt.Errorf("у этого цикла уже есть перенесённые рейсы; массовое перестроение требует отдельного подтверждённого сценария")
+				}
+			}
+		}
+		legacyLabel:=r11CycleLegacyLabel(first,second)
+		expected:=[]struct{date string; seq int}{}
+		expected=append(expected,struct{date string;seq int}{first,1},struct{date string;seq int}{second,2})
+		end:=fmt.Sprintf("%04d-12-31",year)
+		for d,q:=snd,2;;{
+			d=d.AddDate(0,0,28)
+			if d.Format("2006-01-02")>end {break}
+			if q==1 {q=2}else{q=1}
+			expected=append(expected,struct{date string;seq int}{d.Format("2006-01-02"),q})
+		}
+		if adoptOnly {
+			hasLegacy:=false
+			for _,x:=range flights{
+				if r11String(x,"collection_point")==point && (r11Int(x,"cycle_id")==cid ||
+					(r11Int(x,"cycle_id")==0 && strings.Contains(r11String(x,"note"),legacyLabel))){
+					hasLegacy=true;break
+				}
+			}
+			if !hasLegacy {return nil,"",fmt.Errorf("для выбранных опор нет сохранённых дат; сначала создайте цикл")}
+		}
+		added,linked:=0,0
+		for _,v:=range expected {
+			var match map[string]json.RawMessage
+			for _,x:=range flights {
+				if r11String(x,"collection_point")!=point {continue}
+				if r11Int(x,"cycle_id")==cid && r11String(x,"date")==v.date {match=x;break}
+				// Adopt only records *explicitly* tagged with exactly these anchors.
+				if r11Int(x,"cycle_id")==0 && r11String(x,"date")==v.date &&
+					strings.Contains(r11String(x,"note"),legacyLabel) {
+					if match!=nil {return nil,"",fmt.Errorf("дубли ДП %s при переносе цикла — требуется проверка",v.date)}
+					match=x
+				}
+			}
+			if match!=nil {
+				oldSeq:=r11Int(match,"sequence")
+				if oldSeq>0 && oldSeq!=int64(v.seq) {return nil,"",fmt.Errorf("ДП %s имеет иную последовательность",v.date)}
+				if oldSeq==0 && r11CycleSequence(r11String(match,"note"))!=0 && r11CycleSequence(r11String(match,"note"))!=v.seq {
+					return nil,"",fmt.Errorf("ДП %s принадлежит другой последовательности",v.date)
+				}
+				r11Put(match,"cycle_id",cid);r11Put(match,"sequence",v.seq);linked++
+			} else if !adoptOnly {
+				x:=map[string]json.RawMessage{}
+				r11Put(x,"id",r11NextID(root));r11Put(x,"collection_point",point)
+				r11Put(x,"cycle_id",cid);r11Put(x,"sequence",v.seq);r11Put(x,"date",v.date)
+				r11Put(x,"source","Расчёт общего цикла полётов")
+				seqText:="Первая последовательность рейса"
+				if v.seq==2 {seqText="Вторая последовательность рейса"}
+				r11Put(x,"note",seqText+". Фаза определяется видом графика. "+legacyLabel)
+				r11Put(x,"created_at",time.Now().Format(time.RFC3339))
+				flights=append(flights,x);added++
+			}
+		}
+		// Adopt explicitly labelled corrected legacy dates, too; never mix cycles by city.
+		for _,x:=range flights {
+			if r11Int(x,"cycle_id")==0 && r11String(x,"collection_point")==point &&
+				strings.Contains(r11String(x,"note"),legacyLabel) {
+				seq:=r11CycleSequence(r11String(x,"note"))
+				if seq!=1&&seq!=2{return nil,"",fmt.Errorf("у даты %s не определена последовательность",r11String(x,"date"))}
+				r11Put(x,"cycle_id",cid);r11Put(x,"sequence",seq);linked++
+			}
+		}
+		if wantTypes {
+			partner:=name+"."
+			var one,two map[string]json.RawMessage
+			for _,x:=range types {
+				if r11String(x,"collection_point")!=point {continue}
+				if strings.EqualFold(r11String(x,"name"),name) {one=x}
+				if strings.EqualFold(r11String(x,"name"),partner) {two=x}
+			}
+			other:="A";if phase=="A" {other="B"}
+			for _,check:=range []struct{row map[string]json.RawMessage;title,pair,ph string}{
+				{one,name,partner,phase},{two,partner,name,other},
+			}{
+				if check.row==nil {continue}
+				if ex:=r11Int(check.row,"cycle_id");ex!=0&&ex!=cid{
+					return nil,"",fmt.Errorf("вид %q уже связан с другим циклом",check.title)
+				}
+				if v:=r11String(check.row,"phase");v!=""&&v!=check.ph{
+					return nil,"",fmt.Errorf("у вида %q другая фаза; ничего не изменено",check.title)
+				}
+				if v:=r11String(check.row,"pair_name");v!=""&&v!=check.pair{
+					return nil,"",fmt.Errorf("вид %q уже состоит в другой паре",check.title)
+				}
+			}
+			makeType:=func(title,paired,ph string,old map[string]json.RawMessage) {
+				x:=old
+				if x==nil {
+					x=map[string]json.RawMessage{}
+					r11Put(x,"id",r11NextID(root));r11Put(x,"collection_point",point)
+					r11Put(x,"name",title);r11Put(x,"active",true);types=append(types,x)
+				}
+				r11Put(x,"pair_name",paired);r11Put(x,"phase",ph);r11Put(x,"cycle_id",cid)
+			}
+			makeType(name,partner,phase,one);makeType(partner,name,other,two)
+		}
+		r11SetArray(root,"flight_cycles",cycles)
+		r11SetArray(root,"flight_dates",flights)
+		r11SetArray(root,"schedule_types",types)
+		return map[string]any{"cycle_id":cid,"new_cycle":newCycle,"flights_added":added,"flights_linked":linked,"schedule_pair":wantTypes,"flights":len(expected)},
+			fmt.Sprintf("%s · %s / %s · ДП %d · новых %d · пара %v",point,first,second,len(expected),added,wantTypes),nil
+	})
+}
+
+// r11CycleFlightMove changes exactly one persisted flight, never the other dates,
+// the stable cycle ID, or employee plans. The original anchors remain audit metadata.
+func (h *controller) r11CycleFlightMove(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w,r,"Исправлена дата одного рейса",func(root map[string]json.RawMessage)(map[string]any,string,error){
+		body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err}
+		id:=r11Int(body,"id");newDate:=r11String(body,"date");reason:=r11String(body,"reason")
+		if id<=0||!r11DateOK(newDate)||len(reason)<3||len(reason)>300 {
+			return nil,"",fmt.Errorf("укажите рейс, корректную новую дату и причину")
+		}
+		rows,err:=r11Array(root,"flight_dates");if err!=nil{return nil,"",err}
+		row,_:=r11FindRecordID(rows,id)
+		if row==nil||r11Int(row,"cycle_id")<=0{
+			return nil,"",fmt.Errorf("рейс не привязан к конкретному циклу; сначала привяжите цикл")
+		}
+		old:=r11String(row,"date");cid:=r11Int(row,"cycle_id")
+		if newDate==old{return nil,"",fmt.Errorf("дата не изменилась")}
+		cycles,err:=r11Array(root,"flight_cycles");if err!=nil{return nil,"",err}
+		cycle,_:=r11FindRecordID(cycles,cid)
+		if cycle==nil{return nil,"",fmt.Errorf("цикл рейса не найден")}
+		if newDate[:4]!=old[:4] {
+			return nil,"",fmt.Errorf("перенос через границу года требует отдельного согласования")
+		}
+		var previous,next string
+		for _,x:=range rows{
+			if r11Int(x,"cycle_id")!=cid||r11Int(x,"id")==id{continue}
+			d:=r11String(x,"date")
+			if d==newDate{return nil,"",fmt.Errorf("в этом цикле дата %s уже существует",newDate)}
+			if d<old && d>previous {previous=d}
+			if d>old && (next==""||d<next) {next=d}
+		}
+		if (previous!=""&&newDate<=previous)||(next!=""&&newDate>=next){
+			return nil,"",fmt.Errorf("перенос нарушает последовательность рейсов: соседние даты %s и %s",previous,next)
+		}
+		original:=r11String(row,"adjusted_from")
+		if original==""{r11Put(row,"adjusted_from",old)}
+		r11Put(row,"date",newDate)
+		r11Put(row,"adjustment_reason",reason)
+		r11Put(row,"updated_at",time.Now().Format(time.RFC3339))
+		r11SetArray(root,"flight_dates",rows)
+		return map[string]any{"id":id,"cycle_id":cid,"old_date":old,"new_date":newDate,"plans_modified":false},
+			fmt.Sprintf("Цикл #%d · %s → %s · причина: %s · планы сотрудников не изменены",cid,old,newDate,reason),nil
+	})
+}
+
 func (h *controller) r11FlightSave(w http.ResponseWriter, r *http.Request) {
 	h.r11Mutate(w,r,"Дата полёта сохранена",func(root map[string]json.RawMessage)(map[string]any,string,error){
 		body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err}
@@ -903,7 +1128,7 @@ func (h *controller) r11FlightSave(w http.ResponseWriter, r *http.Request) {
 		rows,err:=r11Array(root,"flight_dates");if err!=nil{return nil,"",err}
 		id:=r11Int(body,"id");pos:=-1
 		for i,x:=range rows{if id>0&&r11Int(x,"id")==id{pos=i;break};if id==0&&r11String(x,"collection_point")==point&&r11String(x,"date")==date{pos=i;break}}
-		item:=map[string]json.RawMessage{};if pos>=0{item=rows[pos]}else{r11Put(item,"id",r11NextID(root))}
+		if pos>=0 {old:=rows[pos];if date!=r11String(old,"date")&&(r11Int(old,"cycle_id")>0||strings.Contains(r11String(old,"note"),"Цикл от ")) {return nil,"",fmt.Errorf("перенос циклового рейса выполняется через «Изменить рейс» внутри цикла")}};item:=map[string]json.RawMessage{};if pos>=0{item=rows[pos]}else{r11Put(item,"id",r11NextID(root))}
 		for _,k:=range []string{"collection_point","date","source","note"}{if v:=r11Raw(body,k);len(v)>0{item[k]=append(json.RawMessage(nil),v...)}}
 		r11Put(item,"updated_at",time.Now().Format(time.RFC3339))
 		if pos>=0{rows[pos]=item}else{rows=append(rows,item)}

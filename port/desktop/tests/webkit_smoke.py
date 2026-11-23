@@ -126,6 +126,9 @@ SCRIPT = r"""
     throw Error('Valid cycle must preview dates for the selected point without saving');
   if (state.data.flight_dates.length)
     throw Error('Cycle preview must not write to database');
+  if (!document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle(true)"]') ||
+      !document.getElementById('fcname') || !document.getElementById('fcphase'))
+    throw Error('Cycle preview must offer atomic Save cycle and pair with one editable type name');
   // Batch UX check: actual DOM after a preview must retain anchors and show cancellation.
   if (document.getElementById('fcfirst').value !== '2026-09-01' ||
       document.getElementById('fcsecond').value !== '2026-09-30')
@@ -230,6 +233,58 @@ SCRIPT = r"""
       document.getElementById('stid')?.value)
     throw Error('Cancel schedule edit must reset editing state');
   state.data.schedule_types = state.data.schedule_types.filter(x=>x.id!==919);
+  // Two separate independent Surgut cycles: DO NOT group by the city alone.
+  const snapFlights = state.data.flight_dates.slice();
+  const snapCycles = (state.data.flight_cycles||[]).slice();
+  const snapTypes = state.data.schedule_types.slice();
+  const snapPoint = flightPoint, snapYear = flightYear;
+  state.data.flight_cycles = [
+    {id:770,collection_point:'Сургут',first_anchor:'2026-01-07',second_anchor:'2026-01-29',year:2026},
+    {id:880,collection_point:'Сургут',first_anchor:'2026-01-16',second_anchor:'2026-02-13',year:2026}
+  ];
+  state.data.flight_dates = [
+    {id:771,collection_point:'Сургут',date:'2026-01-07',cycle_id:770,sequence:1,note:'Первая последовательность рейса. Цикл от 07.01.2026 / 29.01.2026'},
+    {id:772,collection_point:'Сургут',date:'2026-01-29',cycle_id:770,sequence:2,note:'Вторая последовательность рейса. Цикл от 07.01.2026 / 29.01.2026'},
+    {id:881,collection_point:'Сургут',date:'2026-01-16',cycle_id:880,sequence:1,note:'Первая последовательность рейса. Цикл от 16.01.2026 / 13.02.2026'},
+    {id:882,collection_point:'Сургут',date:'2026-02-13',cycle_id:880,sequence:2,note:'Вторая последовательность рейса. Цикл от 16.01.2026 / 13.02.2026'}
+  ];
+  state.data.schedule_types = snapTypes.concat([
+    {id:773,collection_point:'Сургут',name:'Сург-Тал-Сург 7',pair_name:'Сург-Тал-Сург 7.',cycle_id:770,phase:'A',active:true},
+    {id:774,collection_point:'Сургут',name:'Сург-Тал-Сург 7.',pair_name:'Сург-Тал-Сург 7',cycle_id:770,phase:'B',active:true},
+    {id:883,collection_point:'Сургут',name:'Сург-Тал-Сург 16',pair_name:'Сург-Тал-Сург 16.',cycle_id:880,phase:'A',active:true},
+    {id:884,collection_point:'Сургут',name:'Сург-Тал-Сург 16.',pair_name:'Сург-Тал-Сург 16',cycle_id:880,phase:'B',active:true}
+  ]);
+  const empBase = agEmployee();
+  const syntheticSurgut = {...empBase, collection_point:'Сургут', schedule_type:'Сург-Тал-Сург 7'};
+  const p7 = buildByFlights(syntheticSurgut,'2026-01-07','2026-02-28');
+  const p16 = buildByFlights({...syntheticSurgut,schedule_type:'Сург-Тал-Сург 16'},'2026-01-16','2026-02-28');
+  if (p7.days['2026-01-07']?.plan!=='ДП' || p7.days['2026-01-29']?.plan!=='ДП' ||
+      p7.days['2026-01-16']?.plan==='ДП' || p7.days['2026-02-13']?.plan==='ДП')
+    throw Error('Cycle 7 constructor mixed another cycle’s dates');
+  if (p16.days['2026-01-16']?.plan!=='ДП' || p16.days['2026-02-13']?.plan!=='ДП' ||
+      p16.days['2026-01-07']?.plan==='ДП' || p16.days['2026-01-29']?.plan==='ДП')
+    throw Error('Cycle 16 constructor mixed another cycle’s dates');
+  state.data.schedule_types.push({id:885,collection_point:'Сургут',name:'Вид без цикла',phase:'A',active:true});
+  let refusedUnbound = false;
+  try { buildByFlights({...syntheticSurgut,schedule_type:'Вид без цикла'},'2026-01-07','2026-02-28'); }
+  catch(e) { refusedUnbound = String(e.message).includes('несколько'); }
+  if (!refusedUnbound) throw Error('Unbound type must not combine different Surgut cycles');
+  state.data.schedule_types.pop();
+  flightPoint='Сургут';flightYear=2026;setAgSection('flights');
+  if (!flightCycleManagePanel().includes('исходные ДП 07.01.2026 / 29.01.2026') ||
+      !flightCycleManagePanel().includes('исходные ДП 16.01.2026 / 13.02.2026'))
+    throw Error('Both cycle cards must remain distinct in the UI');
+  openCycleFlightEditor(772);
+  if (document.getElementById('cycleeditdate')?.value!=='2026-01-29' ||
+      !document.getElementById('cycleeditreason'))
+    throw Error('Bound flight should have its own move-one-date editor');
+  cancelCycleFlightEditor();
+  state.data.schedule_types = snapTypes;
+  state.data.flight_dates = snapFlights;
+  state.data.flight_cycles = snapCycles;
+  flightPoint=snapPoint;flightYear=snapYear;
+  setAgSection('types');
+  outcome.push({label:'Autograf: independent 7 and 16 cycles, isolated plans and one-flight editor',ok:true,error:''});
   outcome.push({label:'Autograf: vacation/constructor previews and schedule edit cancellation',ok:true,error:''});
   setAgSection('calendar');
   r11DateFields.enhanceInside(document.getElementById('page'));
