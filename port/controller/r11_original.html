@@ -494,7 +494,51 @@ function displayPlan(date,day){let p=eventsOnDate(date).some(x=>x.event_type==='
 function official2026Rows(){let H='01-01 01-02 01-03 01-04 01-05 01-06 01-07 01-08 02-23 03-08 05-01 05-09 06-12 11-04'.split(' '),O='01-09 03-09 05-11 12-31'.split(' '),S='04-30 05-08 06-11 11-03'.split(' '),a=[];for(let d='2026-01-01';d<='2026-12-31';d=cAdd(d,1)){let w=cD(d).getUTCDay(),m=d.slice(5),t='WORK',h=8,n='';if(H.includes(m)){t='HOLIDAY';h=0;n='Праздник'}else if(O.includes(m)||w===0||w===6){t='OFF';h=0;n='Выходной'}else if(S.includes(m)){t='SHORT';h=7;n='Сокращённый'}a.push({date:d,day_type:t,norm_hours:h,note:n,source:'ПК РФ 2026'})}return a}
 function cycleAnchors(x){let m=String(x.note||'').match(/Цикл от (\d{2}\.\d{2}\.\d{4}) \/ (\d{2}\.\d{2}\.\d{4})/);return m?[m[1],m[2]]:null}
 function cycleGroups(){let g={};for(let x of state.data.flight_dates.filter(x=>x.collection_point===flightPoint&&x.date.startsWith(`${flightYear}-`))){let a=cycleAnchors(x);if(!a)continue;let k=a.join('|');(g[k]??=[]).push(x)}return Object.entries(g)}
-function flightCycleManagePanel(){let gs=cycleGroups();return `<div class="panel"><h2>Управление построенными циклами</h2><div class="info-note">Удаление рейсов не переписывает уже записанные графики сотрудников. Для изменения графика используйте новую редакцию.</div>${gs.map(([k,a])=>{let [x,y]=k.split('|');return `<div class="cycle-group"><div class="statusline"><b>Цикл ${x} / ${y}</b><span class="badge">дат: ${a.length}</span></div><div style="margin-top:8px">${a.sort((p,q)=>p.date.localeCompare(q.date)).map(z=>`<label style="display:inline-block;margin:3px 10px 3px 0"><input type="checkbox" id="fcsel_${z.id}"> ${formatDate(z.date)}</label>`).join('')}</div><div class="actions"><button class="danger" onclick="deleteCycleSelected('${x}','${y}')">Удалить выбранные</button><button class="danger" onclick="deleteCycleAll('${x}','${y}')">Удалить весь цикл</button></div></div>`}).join('')||'<div class="muted">Для выбранного пункта и года построенных циклов нет.</div>'}</div>`}
+let cyclePairEditorKey='',cycleFlightEditorId=0;
+function cycleISO(s){let a=String(s).split('.');return a.length===3?a[2]+'-'+a[1]+'-'+a[0]:''}
+function cycleRecordFor(point,a,b){return (state.data.flight_cycles||[]).find(c=>c.collection_point===point&&c.first_anchor===cycleISO(a)&&c.second_anchor===cycleISO(b))}
+function openCyclePairEditor(a,b){cyclePairEditorKey=a+'|'+b;cycleFlightEditorId=0;render()}
+function closeCyclePairEditor(){cyclePairEditorKey='';render()}
+async function saveExistingCyclePair(a,b){
+ let point=flightPoint,name=val('existingcname').trim(),phase=val('existingcphase');
+ if(!name||name.endsWith('.')){toast('Введите название первого вида без точки',true);return}
+ if(!confirm('Создать или связать графики «'+name+'» и «'+name+'.» с этим циклом? Существующие даты рейсов останутся без изменений.'))return;
+ try{await api('/api/autograf/cycle/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({collection_point:point,first:cycleISO(a),second:cycleISO(b),year:Number(cycleISO(a).slice(0,4)),adopt_only:true,create_types:true,name,phase})});cyclePairEditorKey='';await load();toast('Цикл привязан к двум видам. Рейсы не изменены.')}catch(e){toast(e.message,true)}
+}
+function cyclePairEditor(a,b){
+ if(cyclePairEditorKey!==a+'|'+b)return '';
+ return `<div class='version-preview'><div class='info-note'>Введите название только одного вида. Второй с точкой создаётся автоматически, а рейсы останутся в этом цикле.</div><div class='grid two'><div><label>Первый вид графика (без точки)</label><input id='existingcname' value='${esc(cycleNameSuggestion(flightPoint,cycleISO(a)))}'></div><div><label>Первая вахта первого вида</label><select id='existingcphase'><option value='A'>Рабочая</option><option value='B'>Свободная</option></select></div></div><div class='actions'><button class='primary' onclick='saveExistingCyclePair(${JSON.stringify(a)},${JSON.stringify(b)})'>Создать и привязать оба вида</button><button class='soft' onclick='closeCyclePairEditor()'>Отмена</button></div></div>`;
+}
+function openCycleFlightEditor(id){cycleFlightEditorId=Number(id);cyclePairEditorKey='';render()}
+function cancelCycleFlightEditor(){cycleFlightEditorId=0;render()}
+async function saveCycleFlightMove(id){
+ let x=state.data.flight_dates.find(y=>Number(y.id)===Number(id));if(!x)return;
+ let date=val('cycleeditdate'),reason=val('cycleeditreason').trim();
+ if(!date||reason.length<3){toast('Укажите дату и причину корректировки',true);return}
+ if(date===x.date){toast('Дата рейса не изменилась');return}
+ if(!confirm('Перенести только ДП '+formatDate(x.date)+' → '+formatDate(date)+'? Остальные рейсы и записанные графики сотрудников не изменятся.'))return;
+ try{await api('/api/autograf/cycle/flight/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:x.id,date,reason})});cycleFlightEditorId=0;await load();toast('Рейс перенесён. Остальные рейсы не изменены.')}catch(e){toast(e.message,true)}
+}
+function cycleFlightEditor(x){
+ if(Number(x.id)!==cycleFlightEditorId)return '';
+ return `<div class='version-preview'><b>Изменить один рейс</b><div class='info-note'>Было: ${formatDate(x.date)}. Цикл и последовательность останутся прежними; другие рейсы и графики сотрудников не изменятся.</div><div class='grid two'><div><label>Новая дата рейса</label><input id='cycleeditdate' type='date' value='${esc(x.date)}'></div><div><label>Причина корректировки</label><input id='cycleeditreason' placeholder='Например: перенос согласованной ДП'></div></div><div class='actions'><button class='primary' onclick='saveCycleFlightMove(${Number(x.id)})'>Перенести только этот рейс</button><button class='soft' onclick='cancelCycleFlightEditor()'>Отмена</button></div><div class='small muted'>Перестроение всего цикла — отдельное действие с новым расчётом и подтверждением. Здесь оно не выполняется.</div></div>`;
+}
+function flightCycleManagePanel(){
+ let gs=cycleGroups();
+ let cards=gs.map(([key,items])=>{
+  let [a,b]=key.split('|'),c=cycleRecordFor(flightPoint,a,b),cid=Number(c?.id)||0;
+  let types=(state.data.schedule_types||[]).filter(t=>cid&&Number(t.cycle_id)===cid);
+  let typeNote=types.length?`<span class='badge good'>${esc(types.map(t=>t.name).join(' / '))}</span>`:`<span class='muted small'>Виды графиков пока не привязаны к этому циклу</span>`;
+  let days=items.sort((x,y)=>x.date.localeCompare(y.date)).map(x=>{
+   let correction=x.adjusted_from?` <span class='small muted'>(перенос с ${formatDate(x.adjusted_from)})</span>`:'';
+   let button=Number(x.cycle_id)>0?` <button class='soft' onclick='openCycleFlightEditor(${Number(x.id)})'>Изменить рейс</button>`:'';
+   return `<div style='margin:6px 0'><label><input type='checkbox' id='fcsel_${Number(x.id)}'> ${formatDate(x.date)}${correction}</label>${button}${cycleFlightEditor(x)}</div>`;
+  }).join('');
+  let action=types.length?'':`<button class='primary' onclick='openCyclePairEditor(${JSON.stringify(a)},${JSON.stringify(b)})'>Создать виды графиков для этого цикла</button>`;
+  return `<div class='cycle-group'><div class='statusline'><b>Цикл · исходные ДП ${a} / ${b}</b><span class='badge'>дат: ${items.length}</span>${typeNote}</div><div class='info-note'>Этот цикл независим от других циклов пункта сбора. Изменение одной ДП не сдвигает остальные.</div><div>${days}</div><div class='actions'>${action}<button class='danger' onclick='deleteCycleSelected(${JSON.stringify(a)},${JSON.stringify(b)})'>Удалить выбранные</button><button class='danger' onclick='deleteCycleAll(${JSON.stringify(a)},${JSON.stringify(b)})'>Удалить весь цикл</button></div>${cyclePairEditor(a,b)}</div>`;
+ }).join('');
+ return `<div class='panel'><h2>Управление построенными циклами</h2><div class='info-note'>У каждого цикла своя пара видов графиков. Создайте оба вида непосредственно из выбранного цикла — связь программа сохранит сама.</div>${cards||'<div class="muted">Для выбранного пункта и года построенных циклов нет.</div>'}</div>`;
+}
 async function deleteCycleIds(ids,msg){if(!ids.length){toast('Не выбраны даты',true);return}if(!confirm(`${msg}: ${ids.length} дат?`))return;try{for(let id of ids)await api('/api/autograf/flight/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});await load();toast(`Удалено дат: ${ids.length}`)}catch(e){toast(e.message,true)}}
 function cycleIds(a,b){return state.data.flight_dates.filter(x=>x.collection_point===flightPoint&&cycleAnchors(x)?.join('|')===`${a}|${b}`).map(x=>x.id)}
 function deleteCycleAll(a,b){deleteCycleIds(cycleIds(a,b),'Удалить весь цикл')}
