@@ -1213,6 +1213,30 @@ async function flightWizardSaveAndCalc(btn){let p=employeeFlightImport;if(!p)ret
     if (root.matches && root.matches('input[type="date"]:not(.emp-date-native)')) enhance(root);
     root.querySelectorAll('input[type="date"]:not(.emp-date-native)').forEach(enhance);
   }
+  // Do not let an incomplete or impossible optional date silently become an empty ISO value on Save.
+  document.addEventListener('click', function (event) {
+    const target = event.target && event.target.closest ? event.target.closest('button.primary') : null;
+    if (!target) return;
+    const panel = target.closest('.panel');
+    if (!panel) return;
+    const dates = panel.querySelectorAll('.r11-date-text');
+    for (const typed of dates) {
+      const raw = typed.value.trim(), originalId = typed.getAttribute('data-r11-for');
+      const source = originalId ? document.getElementById(originalId) : null;
+      if (!source || source.disabled || !raw) continue;
+      const iso = parseDate(raw);
+      if (iso !== null && (!source.min || iso >= source.min) && (!source.max || iso <= source.max)) continue;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      typed.focus();
+      typed.classList.add('r11-date-invalid');
+      typed.setAttribute('aria-invalid', 'true');
+      const error = typed.closest('.r11-date-widget')?.querySelector('.r11-date-error');
+      if (error) error.textContent = iso === null ? 'Проверьте дату: ДД.ММ.ГГГГ' : 'Дата выходит за допустимый период';
+      if (typeof toast === 'function') toast('Исправьте дату ДД.ММ.ГГГГ перед сохранением', true);
+      return;
+    }
+  }, true);
   window.r11DateFields = {parseDate:parseDate,formatTyped:formatTyped,enhanceInside:enhanceInside};
   enhanceInside(document);
   const observer = new MutationObserver(function (records) {
