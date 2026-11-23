@@ -80,6 +80,27 @@ function execute(config, state) {
     assert.ok(!page.includes('Ошибка интерфейса'),step.label+': '+page.match(/Ошибка интерфейса[\s\S]{0,220}/)?.[0]);
     if(step.technicalVersion)assert.ok(page.includes('id="versionPreview"'),step.label+': selected technical version preview not shown');
     assert.equal(errors.length,0,step.label+': console.error: '+errors.join('\n'));
+    if (step.verifyFlightPoints) {
+      assert.ok(page.includes('<option value="Тюмень" selected>Тюмень</option>'),
+        'Tyumen must remain selectable without flight routes, not silently switch to another point');
+      assert.ok(page.includes('<option value="">Выберите пункт сбора</option>') ||
+                page.includes('<option value="" >Выберите пункт сбора</option>'),
+        'flight form must have an explicit blank placeholder');
+      assert.ok(page.includes('id="fcpoint"'), 'cycle point selector must be present');
+      const pts=vm.runInContext('flightPoints()',ctx);
+      assert.ok(pts.includes('Тюмень'), 'known employee point missing from flight selector');
+      assert.ok(pts.includes('Ленск'), 'existing UI point list must be reused');
+      assert.equal(state.data.flight_routes.length,0,'fixture must not invent route records');
+      vm.runInContext(
+        "document.getElementById('fcpoint').value='Тюмень';"+
+        "document.getElementById('fcfirst').value='2026-09-01';"+
+        "document.getElementById('fcsecond').value='2026-01-30';"+
+        "document.getElementById('fcyear').value='2026';"+
+        "calcFlightCycle()",ctx);
+      assert.equal(vm.runInContext('flightCyclePreview',ctx),null,
+        'reversed anchor dates must not create a flight preview');
+      assert.equal(state.data.flight_dates.length,0,'preview must not save any flight');
+    }
     if (step.checkCsv) {
       const parsed=vm.runInContext('parseCsvText('+JSON.stringify(step.checkCsv.text)+')',ctx);
       assert.equal(JSON.stringify(parsed),JSON.stringify(step.checkCsv.expected),step.label+': CSV parsed incorrectly');
@@ -226,6 +247,26 @@ execute([{
 }],fixture(true));
 
 execute([{module:'autograf',section:'graph',label:'terminated employee calendar and norms ignore days after end',verifyTermination:true}],fixture(true));
+
+// No configured flight_routes: collection points from employees and UI must still be selectable.
+execute([{
+  module:'autograf',section:'flights',
+  label:'flight point selector uses existing points even without route records',
+  verifyFlightPoints:true,
+}],fixture(true));
+
+const newLocation=fixture(true);
+newLocation.data.employees[0].collection_point='Нижневартовск';
+execute([{
+  module:'autograf',section:'flights',
+  label:'a custom employee collection point is offered without creating a route',
+  verifyPage(page) {
+    assert.ok(page.includes('<option value="Нижневартовск" selected>Нижневартовск>') ||
+      page.includes('<option value="Нижневартовск" selected>Нижневартовск</option>'),
+      'custom employee point must be selected in the flight form');
+    assert.equal(newLocation.data.flight_routes.length,0,'the UI must not create a route');
+  }
+}],newLocation);
 
 const unsafeName=fixture(true);
 unsafeName.data.employees[0].full_name="О'Брайен \"Иван\" <Проверка>";
