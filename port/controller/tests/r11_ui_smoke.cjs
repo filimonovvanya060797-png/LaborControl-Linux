@@ -48,7 +48,7 @@ function execute(config, state) {
       elements.set(id,{
         innerHTML: '', textContent:'', value:'', checked:false, disabled:false,
         style:{}, dataset:{}, files:[],
-        setAttribute() {}, getAttribute() {return null},
+        focus() {}, setAttribute() {}, getAttribute() {return null},
         querySelector() {return null}, querySelectorAll(){return []}
       });
     }
@@ -71,7 +71,7 @@ function execute(config, state) {
   );
   for (const step of config) {
     errors.length=0;
-    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '');
+    const prepare=(step.archived ? 'graphRevisionPreviewId=10;graphRevisionPreviewData=state.data.graph_revisions[0];' : '')+(step.staleTab ? 'agTab='+JSON.stringify(step.staleTab)+';' : '')+(step.invalidEmployeeImport ? 'empImport={name:"errors.xlsx",head:["Табельный №","ФИО"],rows:[["","Без номера"]]};empImportMap={tab_no:"0",full_name:"1",position:"",unit:"",hire_date:"",fire_date:""};' : '')+(step.illustratedHelp ? 'guideSelected="employees-illustrated";guideIllustratedAnchor="excelload";' : '')+(step.incompatiblePoint ? 'empPointImport={name:"points.xlsx",head:["Табельный №","ФИО","Пункт сбора"],rows:[["990001","Тестов Иван Иванович","Уфа"]],map:{t:0,f:1,p:2,n:-1}};' : '')+(step.technicalVersion ? 'versionViewId=20;versionViewMode='+JSON.stringify(step.technicalVersion)+';' : '')+(step.lifecycleStatus ? 'employeeLifecycleStatus=function(){return '+JSON.stringify(step.lifecycleStatus)+';};' : '');
     const code=prepare+'current='+JSON.stringify(step.module)+';agSection='+JSON.stringify(step.section||'graph')+';agView='+JSON.stringify(step.view||'month')+';render();';
     try {vm.runInContext(code,ctx,{filename:'render-'+step.module+'-'+(step.section||''),timeout:15000})}
     catch (error) {throw new Error(step.label+': uncaught JavaScript error: '+error.stack)}
@@ -80,6 +80,33 @@ function execute(config, state) {
     assert.ok(!page.includes('Ошибка интерфейса'),step.label+': '+page.match(/Ошибка интерфейса[\s\S]{0,220}/)?.[0]);
     if(step.technicalVersion)assert.ok(page.includes('id="versionPreview"'),step.label+': selected technical version preview not shown');
     assert.equal(errors.length,0,step.label+': console.error: '+errors.join('\n'));
+    if (step.checkCsv) {
+      const parsed=vm.runInContext('parseCsvText('+JSON.stringify(step.checkCsv.text)+')',ctx);
+      assert.equal(JSON.stringify(parsed),JSON.stringify(step.checkCsv.expected),step.label+': CSV parsed incorrectly');
+    }
+    if (step.verifyDate) {
+      for (const [raw,expected] of [
+        ['01.11.2026','2026-11-01'],
+        ['2026-11-18','2026-11-18'],
+        ['',''],
+        ['31.02.2026',null],
+        ['29.02.2024','2024-02-29'],
+        ['29.02.2025',null],
+        ['1.11.2026',null],
+        ['99.12.2026',null],
+      ]) {
+        const actual=vm.runInContext('employeeDateISO('+JSON.stringify(raw)+')',ctx);
+        assert.equal(actual,expected,'employee date conversion failed: '+raw);
+      }
+      vm.runInContext("employeeDateSet('efire','2026-11-18')",ctx);
+      assert.equal(getElement('efiretext').value,'18.11.2026','manual text must sync from ISO');
+      vm.runInContext("employeeDateClear('efire')",ctx);
+      assert.equal(getElement('efiretext').value,'','clear must empty the visible date');
+      assert.equal(getElement('efire').value,'','clear must empty the persisted ISO value');
+      vm.runInContext("document.getElementById('efiretext').value='15.11.2026';employeeDateTyped('efire')",ctx);
+      assert.equal(getElement('efire').value,'2026-11-15','manual input must update the ISO value');
+    }
+    if (typeof step.verifyPage === 'function') step.verifyPage(page);
     process.stdout.write('OK '+step.label+'\n');
   }
 }
@@ -89,6 +116,105 @@ const screens = ['dashboard','employees','rvd','check','events','journal','help'
 const sections = ['graph','vacations','constructor','summary','calendar','types','flights','versions']
   .map(section=>({module:'autograf',section,label:'autograf / '+section}));
 execute([{module:'dashboard',label:'empty dashboard'},{module:'employees',label:'empty employees'},{module:'autograf',label:'empty autograf'}],fixture(false));
+
+const deletedSelectedEmployee = fixture(true);
+deletedSelectedEmployee.data.graph_revisions.push({
+  id:10,employee_id:99,number:1,status:'ARCHIVED',
+  effective_date:'2026-11-01',reason:'Удалённый сотрудник',
+  days_snapshot:[],events_snapshot:[],notes_snapshot:[],colors_snapshot:[]
+});
+execute([{
+  module:'autograf',section:'graph',label:'deleted selected employee falls back to remaining employee',
+  staleTab:'990099',archived:true,
+  verifyPage(page) {
+    assert.ok(page.includes('Тестов Иван Иванович'),'remaining employee should become selected');
+    assert.ok(!page.includes('Просмотр архивной редакции'),'stale archive preview must be cleared');
+  }
+}],deletedSelectedEmployee);
+
+
+execute([{
+  module:'help',label:'illustrated employee handbook is accessible inside the Instruction tab',
+  illustratedHelp:true,
+  verifyPage(page){
+    assert.ok(page.includes('id="employeeGuideFrame"'),'embedded illustration iframe must be visible');
+    assert.ok(page.includes('src="/help/employees#excelload"'),'deep-link for import must resolve');
+    assert.ok(page.includes('Ко всем главам'),'there must be a way back to general instructions');
+  }
+}],fixture(true));
+
+execute([{
+  module:'employees',label:'employee editable dates, calendar and help',verifyDate:true,
+  verifyPage(page) {
+    for(const id of ['ehiretext','efiretext','ehirepicker','efirepicker']) {
+      assert.ok(page.includes('id="'+id+'"'),'employee date field missing: '+id);
+    }
+    assert.equal((page.match(/Очистить дату<\/button>/g)||[]).length,2,
+      'both dates need an explicit local clear control');
+    assert.ok(page.includes('ДД.ММ.ГГГГ'),'manual date format must be visible');
+  }
+}],fixture(true));
+
+const unsafeName=fixture(true);
+unsafeName.data.employees[0].full_name="О'Брайен \"Иван\" <Проверка>";
+execute([{module:'employees',label:'employee edit button is safe for quotes and HTML',
+  verifyPage(page) {
+    assert.ok(page.includes('onclick="editEmpById(1)"'),'edit should use stable numeric ID');
+    assert.ok(!page.includes("onclick='editEmp("),'employee JSON must not be interpolated into attributes');
+    assert.ok(page.includes('О&#39;Брайен'),'apostrophe should be HTML-escaped');
+  }}],unsafeName);
+execute([{
+  module:'employees',label:'invalid import button is disabled with an explanation',
+  invalidEmployeeImport:true,
+  verifyPage(page) {
+    assert.ok(page.includes('Ошибок: 1'),'error count should be visible');
+    assert.ok(page.includes('disabled style="opacity:.45;cursor:not-allowed"'),'button should be disabled');
+    assert.ok(page.includes('Импорт недоступен: в файле 1 ошибка'),'reason for blocking import should be visible');
+    assert.ok(page.includes('Записей из выбранного Excel/CSV: 1'),'import preview must explain what rows represent');
+    assert.ok(page.includes('Пока ничего не сохранено'),'preview must explain data are not yet imported');
+    assert.ok(page.includes('<th>№ записи</th>'),'preview table must number Excel records');
+    assert.ok(page.includes('Не указан табельный номер'),'missing tab must be precise');
+    assert.ok(page.includes('«Проверить файл»'),'guidance must reference actual button');
+    assert.ok(!page.includes('Прочитать файл заново'),'guidance must never invent a button');
+  }
+}],fixture(true));
+execute([{
+  module:'employees',label:'quoted CSV with newlines and separators',
+  checkCsv:{
+    text:'Табельный №;ФИО;Подразделение\r\n42;"О""Нил; Иван\nПетрович";"Колонна 2"\r\n',
+    expected:[['Табельный №','ФИО','Подразделение'],['42','О"Нил; Иван\nПетрович','Колонна 2']]
+  }
+}],fixture(true));
+
+
+const incompatiblePoint=fixture(true);
+incompatiblePoint.data.employees[0].schedule_type='Тюмень-А';
+incompatiblePoint.data.schedule_types.push({
+  id:3,collection_point:'Тюмень',name:'Тюмень-А',phase:'A',active:true
+});
+execute([{module:'employees',incompatiblePoint:true,
+  label:'point import cannot silently retain incompatible assigned schedule',
+  verifyPage(page) {
+    assert.ok(page.includes('Вид графика «Тюмень-А» не подходит к пункту «Уфа»'),
+      'incompatible schedule should be rejected before point import');
+    assert.ok(page.includes('Ошибок: 1'),'point import must flag one error');
+  }
+}],incompatiblePoint);
+const probationDisplay = fixture(true);
+probationDisplay.data.employees[0].probation = true;
+probationDisplay.data.employees[0].probation_end = '2027-04-14';
+execute([{
+  module:'autograf',section:'graph',label:'probation status is shown only once',
+  lifecycleStatus:{kind:'neutral',code:'probation',text:'Испытательный срок до 14.04.2027.'},
+  verifyPage(page) {
+    assert.ok(page.includes('<b>Испытательный срок</b>'),'probation heading missing');
+    assert.equal((page.match(/до 14\.04\.2027\./g)||[]).length,1,
+      'the probation end date must be rendered once, not as a duplicate line');
+    assert.ok(!page.includes('Испытательный срок: до 14.04.2027.'),
+      'legacy duplicate prefix must not be rendered');
+  }
+}],probationDisplay);
+
 execute([...screens,...sections,
   {module:'autograf',section:'graph',view:'year',label:'autograf / yearly graph'}
 ],fixture(true));

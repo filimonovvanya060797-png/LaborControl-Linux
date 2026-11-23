@@ -25,6 +25,10 @@ func (h *controller) r11CoreAPI(w http.ResponseWriter, r *http.Request) {
 		h.r11CoreState(w, r)
 	case "/api/employee/save":
 		h.r11EmployeeSave(w, r)
+	case "/api/employee/batch":
+		h.r11EmployeeBatch(w, r)
+	case "/api/employee/points/template.xlsx":
+		h.r11CollectionPointTemplate(w, r)
 	case "/api/employee/delete":
 		h.r11EmployeeDelete(w, r)
 	case "/api/day/save", "/api/day/quick-save":
@@ -428,46 +432,89 @@ func r11ComputeDiscrepancies(root map[string]json.RawMessage) []map[string]any {
 	return out
 }
 
-func (h *controller) r11EmployeeSave(w http.ResponseWriter, r *http.Request) {
-	h.r11Mutate(w, r, "Карточка сотрудника", func(root map[string]json.RawMessage) (map[string]any, string, error) {
-		body, err := r11BodyMap(w, r, 2<<20)
-		if err != nil { return nil, "", err }
-		if err := r11StrictEmployeePayload(body); err != nil { return nil, "", err }
-		rows, err := r11Array(root, "employees")
-		if err != nil { return nil, "", err }
-		tab, name := r11String(body, "tab_no"), r11String(body, "full_name")
-		if tab == "" || name == "" { return nil, "", fmt.Errorf("табельный номер и ФИО обязательны") }
-		id := r11Int(body, "id")
-		pos := -1
-		if id > 0 {
-			_, pos = r11FindEmployeeID(rows, id)
-			if pos < 0 { return nil, "", fmt.Errorf("сотрудник id=%d не найден; создание карточки с новым ID отменено", id) }
-		}
-		if pos < 0 {
-			_, duplicate := r11FindEmployee(rows, tab)
-			if duplicate >= 0 { return nil, "", fmt.Errorf("табельный номер %s уже существует", tab) }
-		} else {
-			for i, other := range rows {
-				if i != pos && strings.EqualFold(r11String(other, "tab_no"), tab) {
-					return nil, "", fmt.Errorf("табельный номер %s уже существует", tab)
-				}
-			}
-		}
-		item := map[string]json.RawMessage{}
-		if pos >= 0 { item = rows[pos] } else { r11Put(item, "id", r11NextID(root)); r11Put(item, "created_at", time.Now().Format(time.RFC3339)) }
-		for _, key := range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes"} {
-			if v := r11Raw(body, key); len(v) > 0 { item[key] = append(json.RawMessage(nil), v...) }
-		}
-		for _, key := range []string{"is_quarter","probation","main_schedule_ready"} {
-			if v := r11Raw(body, key); len(v) > 0 { item[key] = append(json.RawMessage(nil), v...) }
-		}
-		r11Put(item, "updated_at", time.Now().Format(time.RFC3339))
-		if pos >= 0 { rows[pos] = item } else { rows = append(rows, item) }
-		r11SetArray(root, "employees", rows)
-		verb := "создан"
-		if pos >= 0 { verb = "изменён" }
-		return map[string]any{"id": r11Int(item, "id"), "created": pos < 0}, fmt.Sprintf("%s · %s · %s", tab, name, verb), nil
-	})
+
+func r11EmployeeUpsert(root map[string]json.RawMessage, rows []map[string]json.RawMessage, body map[string]json.RawMessage) ([]map[string]json.RawMessage, int64, bool, error) {
+    if err := r11StrictEmployeePayload(body); err != nil { return nil, 0, false, err }
+    tab, name := r11String(body,"tab_no"),r11String(body,"full_name")
+    if tab==""||name=="" { return nil,0,false,fmt.Errorf("табельный номер и ФИО обязательны") }
+    id:=r11Int(body,"id")
+    pos:=-1
+    if id>0 {
+        _,pos=r11FindEmployeeID(rows,id)
+        if pos<0 { return nil,0,false,fmt.Errorf("сотрудник id=%d не найден; создание карточки с новым ID отменено",id) }
+    }
+    if pos<0 {
+        _,dup:=r11FindEmployee(rows,tab)
+        if dup>=0 { return nil,0,false,fmt.Errorf("табельный номер %s уже существует",tab) }
+    } else {
+        for i,other:=range rows {
+            if i!=pos&&strings.EqualFold(r11String(other,"tab_no"),tab) {
+                return nil,0,false,fmt.Errorf("табельный номер %s уже существует",tab)
+            }
+        }
+    }
+    item:=map[string]json.RawMessage{}
+    created:=pos<0
+    if !created {
+        for k,v:=range rows[pos] { item[k]=append(json.RawMessage(nil),v...) }
+    }
+    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready"} {
+        if v:=r11Raw(body,key);len(v)>0 { item[key]=append(json.RawMessage(nil),v...) }
+    }
+    // Validate the complete record after merging, not only the partial request.
+    if err:=r11StrictEmployeePayload(item);err!=nil { return nil,0,false,err }
+    if created {
+        r11Put(item,"id",r11NextID(root))
+        r11Put(item,"created_at",time.Now().Format(time.RFC3339))
+    }
+    r11Put(item,"updated_at",time.Now().Format(time.RFC3339))
+    if created { rows=append(rows,item) }else{ rows[pos]=item }
+    return rows,r11Int(item,"id"),created,nil
+}
+
+func (h *controller) r11EmployeeSave(w http.ResponseWriter,r *http.Request) {
+    h.r11Mutate(w,r,"Карточка сотрудника",func(root map[string]json.RawMessage)(map[string]any,string,error){
+        body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err}
+        rows,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
+        rows,id,created,err:=r11EmployeeUpsert(root,rows,body);if err!=nil{return nil,"",err}
+        r11SetArray(root,"employees",rows)
+        verb:="изменён";if created{verb="создан"}
+        return map[string]any{"id":id,"created":created},fmt.Sprintf("%s · %s · %s",r11String(body,"tab_no"),r11String(body,"full_name"),verb),nil
+    })
+}
+
+// Apply an entire employee or collection-point spreadsheet as one transaction.
+// On a bad row, nothing is written and the existing database remains unchanged.
+func (h *controller) r11EmployeeBatch(w http.ResponseWriter,r *http.Request) {
+    h.r11Mutate(w,r,"Массовый импорт сотрудников",func(root map[string]json.RawMessage)(map[string]any,string,error){
+        body,err:=r11BodyMap(w,r,32<<20);if err!=nil{return nil,"",err}
+        raw:=r11Raw(body,"employees")
+        var batch []map[string]json.RawMessage
+        if len(raw)==0||json.Unmarshal(raw,&batch)!=nil||len(batch)<1||len(batch)>2000 {
+            return nil,"",fmt.Errorf("передайте от 1 до 2000 корректных карточек в массиве employees")
+        }
+        rows,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
+        touched:=map[string]bool{}
+        createdCount,updatedCount:=0,0
+        for i,emp:=range batch {
+            if emp==nil {return nil,"",fmt.Errorf("строка %d: карточка отсутствует",i+1)}
+            id:=r11Int(emp,"id")
+            tab:=strings.ToLower(strings.TrimSpace(r11String(emp,"tab_no")))
+            key:=fmt.Sprintf("tab:%s",tab)
+            if id>0 { key=fmt.Sprintf("id:%d",id) }
+            if touched[key] {return nil,"",fmt.Errorf("строка %d: повтор сотрудника в пакете",i+1)}
+            touched[key]=true
+            var newID int64
+            var created bool
+            rows,newID,created,err=r11EmployeeUpsert(root,rows,emp)
+            if err!=nil{return nil,"",fmt.Errorf("строка %d: %w",i+1,err)}
+            _=newID
+            if created {createdCount++}else{updatedCount++}
+        }
+        r11SetArray(root,"employees",rows)
+        return map[string]any{"created":createdCount,"updated":updatedCount,"applied":len(batch)},
+            fmt.Sprintf("%d записей (новых: %d; изменений: %d)",len(batch),createdCount,updatedCount),nil
+    })
 }
 
 func (h *controller) r11EmployeeDelete(w http.ResponseWriter, r *http.Request) {

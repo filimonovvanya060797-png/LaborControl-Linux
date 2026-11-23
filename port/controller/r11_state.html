@@ -161,7 +161,7 @@ async function importState(){
     const response=await fetch("/api/state/import",{method:"POST",headers:{"Content-Type":"application/json"},body:await file.text()});
     const result=await responseJSON(response);
     if(!response.ok)throw new Error(result.error||"HTTP "+response.status);
-    pending.clear();$("stateFile").value="";await loadState();
+    pending.clear();$("stateFile").value="";$("stateFile").dispatchEvent(new Event("change"));await loadState();
     notify("Импортировано сотрудников: "+result.employees+"; дней: "+result.days+". Резервная копия: "+(result.backup||"не требовалась"),"success");
   }catch(e){notify("Импорт не выполнен: "+e.message,"error");}
   finally{$("import").disabled=!$("stateFile").files.length;}
@@ -176,6 +176,75 @@ $("import").addEventListener("click",importState);
 $("prev").addEventListener("click",()=>{page--;render()});
 $("next").addEventListener("click",()=>{page++;render()});
 loadState();
+</script>
+
+<!-- Единый русскоязычный выбор файлов: ID, accept и API-обработчики сохранены. -->
+<style id="r11-ru-file-picker-style">
+.r11-file-hidden{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:0!important;clip-path:inset(50%)!important;pointer-events:none!important}
+.r11-file-button{display:inline-flex;align-items:center;justify-content:center;max-width:100%;padding:7px 12px;border-radius:7px;border:1px solid #b4c2da;background:#f0f4ff;color:#1b345b;font:inherit;cursor:pointer;white-space:nowrap}
+.r11-file-button:hover{background:#e1eafe}
+.r11-file-button:focus-visible{outline:3px solid #2855d9;outline-offset:2px}
+.r11-file-status{display:inline-block;max-width:100%;margin-left:9px;color:#425066;font-size:13px;overflow-wrap:anywhere}
+</style>
+<script id="r11-ru-file-picker-script">
+(function () {
+  'use strict';
+  const names = {
+    empxlsx:'сотрудников', pointxlsx:'пунктов сбора и вылета',
+    flxlsx:'рейсов', effile:'полётов сотрудников', eventfile:'событий',
+    vacxlsx:'отпусков', calfile6:'производственного календаря',
+    factfile:'фактических данных CSV', t2fact:'факта',
+    t2szrvd:'СЗ РВД', stateFile:'резервной копии JSON',
+    'r11-windows-file':'экспорта Windows R11'
+  };
+  function enhance(input) {
+    if (!input.id || input.dataset.r11PickerReady === '1') return;
+    input.dataset.r11PickerReady = '1';
+    input.classList.add('r11-file-hidden');
+    input.tabIndex = -1;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'r11-file-button';
+    button.textContent = 'Выбрать файл';
+    button.setAttribute('aria-controls', input.id);
+    button.setAttribute('aria-label', 'Выбрать файл ' + (names[input.id] || 'для загрузки'));
+    const status = document.createElement('span');
+    status.className = 'r11-file-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    const refresh = () => {
+      const file = input.files && input.files[0];
+      status.textContent = file ? 'Выбран файл: ' + file.name : 'Файл не выбран';
+    };
+    input.addEventListener('change', refresh);
+    button.addEventListener('click', () => input.click());
+    input.insertAdjacentElement('afterend', status);
+    input.insertAdjacentElement('afterend', button);
+    refresh();
+  }
+  function enhanceInside(node) {
+    if (node.nodeType !== 1 && node.nodeType !== 9) return;
+    if (node.matches && node.matches('input[type="file"]')) enhance(node);
+    node.querySelectorAll('input[type="file"]').forEach(enhance);
+  }
+  enhanceInside(document);
+  // R11 перестраивает экран целиком при смене раздела: новые поля тоже русифицируются.
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      if ((node.matches && node.matches('input[type="file"]')) ||
+          (node.querySelector && node.querySelector('input[type="file"]'))) enhanceInside(node);
+    }
+  });
+  observer.observe(document.body || document.documentElement, {childList:true,subtree:true});
+  document.addEventListener('reset', event => {
+    window.setTimeout(() => {
+      event.target.querySelectorAll('input[type="file"]').forEach(input => {
+        input.dispatchEvent(new Event('change'));
+      });
+    }, 0);
+  }, true);
+})();
 </script>
 </body>
 </html>

@@ -1,0 +1,485 @@
+{
+  "schema": "LaborControl_R11_screenshot_annotations_V7",
+  "approved_by_user": "2026-11-22",
+  "description_ru": "Проверенная пользователем схема: обрезка оригинала, затем рамки по координатам обрезанного изображения (до изменения масштаба); без заливки.",
+  "coordinate_system": "pixel coordinates relative to original unannotated screenshot crop. Each region = [x0,y0,x1,y1]",
+  "style": {
+    "color_for_controls": "#1248D3",
+    "color_for_errors": "#C32828",
+    "color_for_warnings": "#B86200",
+    "outline_width_px": 4,
+    "white_understroke_px": 2,
+    "image_margins_px": {
+      "left": 72,
+      "right": 32,
+      "top": 25,
+      "bottom": 64
+    },
+    "marker": "white digit in colored circle, connected with a thin line without crossing text",
+    "prohibited": "transparent fill, glow, blur, oversized rectangles, inaccurate boxes, synthetic UI text"
+  },
+  "images": [
+    {
+      "slug": "overview",
+      "source": "Снимок экрана_20261122_190319.png",
+      "crop": [
+        247,
+        175,
+        1905,
+        856
+      ],
+      "marks": [
+        [
+          1,
+          [
+            26,
+            28,
+            1648,
+            258
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          2,
+          [
+            26,
+            269,
+            1648,
+            581
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          3,
+          [
+            43,
+            610,
+            303,
+            643
+          ],
+          "controls",
+          "left"
+        ]
+      ]
+    },
+    {
+      "slug": "card",
+      "source": "Снимок экрана_20261122_190333.png",
+      "crop": [
+        247,
+        70,
+        1905,
+        805
+      ],
+      "marks": [
+        [
+          1,
+          [
+            44,
+            108,
+            837,
+            176
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          2,
+          [
+            44,
+            182,
+            837,
+            263
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          3,
+          [
+            44,
+            478,
+            246,
+            520
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          4,
+          [
+            1371,
+            657,
+            1555,
+            702
+          ],
+          "controls",
+          "near-right"
+        ]
+      ]
+    },
+    {
+      "slug": "probation",
+      "source": "Снимок экрана_20261122_190405.png",
+      "crop": [
+        0,
+        0,
+        1645,
+        678
+      ],
+      "marks": [
+        [
+          1,
+          [
+            417,
+            303,
+            587,
+            331
+          ],
+          "controls",
+          "near-left"
+        ],
+        [
+          2,
+          [
+            816,
+            305,
+            1209,
+            380
+          ],
+          "controls",
+          "near-left"
+        ],
+        [
+          3,
+          [
+            1215,
+            625,
+            1632,
+            677
+          ],
+          "errors",
+          "below"
+        ]
+      ]
+    },
+    {
+      "slug": "noteedit",
+      "source": "Снимок экрана_20261122_190618.png",
+      "crop": [
+        247,
+        310,
+        1905,
+        790
+      ],
+      "marks": [
+        [
+          1,
+          [
+            44,
+            288,
+            1631,
+            386
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          2,
+          [
+            44,
+            396,
+            147,
+            440
+          ],
+          "controls",
+          "left"
+        ]
+      ]
+    },
+    {
+      "slug": "noteview",
+      "source": "Снимок экрана_20261122_190632.png",
+      "crop": [
+        247,
+        365,
+        1905,
+        590
+      ],
+      "marks": [
+        [
+          1,
+          [
+            26,
+            15,
+            1648,
+            119
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          2,
+          [
+            26,
+            124,
+            1648,
+            188
+          ],
+          "controls",
+          "left"
+        ]
+      ]
+    },
+    {
+      "slug": "excelload",
+      "source": "Снимок экрана_20261122_191215.png",
+      "crop": [
+        0,
+        0,
+        1652,
+        242
+      ],
+      "marks": [
+        [
+          1,
+          [
+            24,
+            168,
+            168,
+            212
+          ],
+          "controls",
+          "below"
+        ],
+        [
+          2,
+          [
+            170,
+            175,
+            627,
+            208
+          ],
+          "controls",
+          "below"
+        ],
+        [
+          3,
+          [
+            629,
+            169,
+            768,
+            212
+          ],
+          "controls",
+          "below"
+        ]
+      ]
+    },
+    {
+      "slug": "excelpreview",
+      "source": "Снимок экрана_20261122_191227.png",
+      "crop": [
+        0,
+        0,
+        1630,
+        581
+      ],
+      "marks": [
+        [
+          1,
+          [
+            14,
+            62,
+            1600,
+            224
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          2,
+          [
+            14,
+            250,
+            356,
+            284
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          3,
+          [
+            14,
+            474,
+            1600,
+            516
+          ],
+          "warnings",
+          "left"
+        ],
+        [
+          4,
+          [
+            14,
+            523,
+            365,
+            566
+          ],
+          "controls",
+          "left"
+        ]
+      ]
+    },
+    {
+      "slug": "excelerrors",
+      "source": "Снимок экрана_20261122_184037.png",
+      "crop": [
+        0,
+        0,
+        1092,
+        442
+      ],
+      "marks": [
+        [
+          1,
+          [
+            18,
+            24,
+            359,
+            54
+          ],
+          "errors",
+          "left"
+        ],
+        [
+          2,
+          [
+            18,
+            58,
+            1065,
+            321
+          ],
+          "errors",
+          "left"
+        ],
+        [
+          3,
+          [
+            18,
+            329,
+            281,
+            370
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          4,
+          [
+            18,
+            371,
+            1066,
+            409
+          ],
+          "warnings",
+          "left"
+        ]
+      ]
+    },
+    {
+      "slug": "pointschoose",
+      "source": "Снимок экрана_20261122_191759.png",
+      "crop": [
+        0,
+        0,
+        1627,
+        315
+      ],
+      "marks": [
+        [
+          1,
+          [
+            5,
+            181,
+            203,
+            221
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          2,
+          [
+            5,
+            251,
+            155,
+            293
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          3,
+          [
+            266,
+            251,
+            426,
+            294
+          ],
+          "controls",
+          "near-right"
+        ]
+      ]
+    },
+    {
+      "slug": "pointspreview",
+      "source": "Снимок экрана_20261122_191834.png",
+      "crop": [
+        0,
+        0,
+        1621,
+        467
+      ],
+      "marks": [
+        [
+          1,
+          [
+            18,
+            303,
+            441,
+            327
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          2,
+          [
+            18,
+            365,
+            1601,
+            410
+          ],
+          "controls",
+          "left"
+        ],
+        [
+          3,
+          [
+            18,
+            418,
+            270,
+            460
+          ],
+          "controls",
+          "left"
+        ]
+      ]
+    }
+  ],
+  "validation_ru": "Координаты для конкретных исходных файлов, не переносить на другие разрешения без ручной визуальной проверки. До отдачи сверить номера с подписями, рендер Word всех страниц, HTML и увеличение."
+}

@@ -13,7 +13,7 @@ import (
 // future edit cannot accidentally leave one of its routes unmapped. A GET on
 // write-only endpoints must fail with 405, not silently change local data.
 func TestR11OriginalFrontendHasNoUnmappedAPIEndpoints(t *testing.T) {
-	matches:=regexp.MustCompile(`/api/[a-z0-9/_-]+`).FindAllString(string(r11OriginalHTML),-1)
+	matches:=regexp.MustCompile(`/api/[a-z0-9/_.-]+`).FindAllString(string(r11OriginalHTML),-1)
 	if len(matches)<25{t.Fatalf("incomplete original R11 API inventory: %d matches",len(matches))}
 	unique:=map[string]bool{}
 	for _,p:=range matches{unique[p]=true}
@@ -26,11 +26,11 @@ func TestR11OriginalFrontendHasNoUnmappedAPIEndpoints(t *testing.T) {
 			req:=httptest.NewRequest(http.MethodGet,path,nil)
 			rec:=httptest.NewRecorder()
 			h.r11CoreAPI(rec,req)
-			// '/api/state' and revision/get are read-only. Write routes return 405.
+			// State, revision/get and the XLSX template are read-only. Write routes return 405.
 			if rec.Code==http.StatusNotFound{
 				t.Fatalf("the original frontend uses %s, but the Linux Core has no handler",path)
 			}
-			if path!="/api/state"&&path!="/api/autograf/revision/get"&&rec.Code!=http.StatusMethodNotAllowed{
+			if path!="/api/state"&&path!="/api/autograf/revision/get"&&path!="/api/employee/points/template.xlsx"&&rec.Code!=http.StatusMethodNotAllowed{
 				t.Fatalf("write operation %s accepted a GET request: HTTP %d",path,rec.Code)
 			}
 		})

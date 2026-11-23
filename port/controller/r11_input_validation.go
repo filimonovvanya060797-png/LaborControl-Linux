@@ -67,6 +67,24 @@ func r11StrictEmployeePayload(body map[string]json.RawMessage) error {
             return fmt.Errorf("поле %s должно быть корректной датой YYYY-MM-DD", key)
         }
     }
+    hire, fire := r11String(body, "hire_date"), r11String(body, "fire_date")
+    probationEnd := r11String(body, "probation_end")
+    if hire != "" && fire != "" && fire < hire {
+        return fmt.Errorf("дата увольнения не может быть раньше даты приёма")
+    }
+    if hire != "" && probationEnd != "" && probationEnd < hire {
+        return fmt.Errorf("испытательный срок не может закончиться раньше даты приёма")
+    }
+    var probation bool
+    if raw := r11Raw(body, "probation"); len(raw) != 0 {
+        _ = json.Unmarshal(raw, &probation) // type was validated above
+    }
+    if probation && probationEnd == "" {
+        return fmt.Errorf("укажите дату окончания испытательного срока")
+    }
+    if !probation && probationEnd != "" {
+        return fmt.Errorf("дата окончания испытательного срока указана, но галочка не установлена")
+    }
     return nil
 }
 
