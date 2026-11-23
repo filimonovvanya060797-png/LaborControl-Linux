@@ -68,6 +68,9 @@ type R11Employee struct {
 	FireDate         string `json:"fire_date"`
 	FullName         string `json:"full_name"`
 	HireDate         string `json:"hire_date"`
+	NormBasis        string `json:"norm_basis"`
+	WeeklyHours      int32  `json:"weekly_hours"`
+	ShiftHours       int32  `json:"shift_hours"`
 	ID               int32  `json:"id"`
 	IsQuarter        bool   `json:"is_quarter"`
 	MainScheduleReady bool  `json:"main_schedule_ready"`
