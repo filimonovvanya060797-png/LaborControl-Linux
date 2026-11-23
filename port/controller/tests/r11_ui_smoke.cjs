@@ -84,6 +84,33 @@ function execute(config, state) {
       const parsed=vm.runInContext('parseCsvText('+JSON.stringify(step.checkCsv.text)+')',ctx);
       assert.equal(JSON.stringify(parsed),JSON.stringify(step.checkCsv.expected),step.label+': CSV parsed incorrectly');
     }
+    if (step.verifyTermination) {
+      const sample=state.data.employees[0];
+      sample.hire_date='2026-11-01';sample.fire_date='2026-11-18';
+      sample.probation=true;sample.probation_end='2026-11-20';
+      sample.main_schedule_ready=false;
+      state.data.days.push({id:99,employee_id:sample.id,date:'2026-11-19',plan:'1/8',plan_hours:8});
+      vm.runInContext('state.data='+JSON.stringify(state.data),ctx);
+      const period=vm.runInContext('graphPeriod(agEmployee(),2026)',ctx);
+      assert.equal(period.start,'2026-11-01','hire date must bound graph start');
+      assert.equal(period.end,'2026-11-18','termination must cut probation early');
+      assert.equal(vm.runInContext("graphDateAllowed(agEmployee(),'2026-11-18')",ctx),true,'termination itself writable');
+      assert.equal(vm.runInContext("graphDateAllowed(agEmployee(),'2026-11-19')",ctx),false,'after termination not writable');
+      assert.equal(vm.runInContext("graphDateAllowed(agEmployee(),'2026-11-20')",ctx),false,'probation end must not override termination');
+      const total=vm.runInContext('sumPlan(agEmployee(),2026)',ctx);
+      assert.equal(total,8,'future historical plan cannot inflate plan total');
+      const status=vm.runInContext('employeeLifecycleStatus(agEmployee()).text',ctx);
+      assert.ok(status.includes('Уволен 18.11.2026'),'terminated status remains');
+      assert.ok(status.includes('основной график не требуется'),'probation status exception remains');
+      // Version cutoff and absence of termination in a different year.
+      const bounds=vm.runInContext("revisionBoundsFor(null,agEmployee(),2026)",ctx);
+      assert.equal(bounds.end,'2026-11-18','revision must end at termination');
+      vm.runInContext("selectedDate='2026-11-18';selectAgDate('2026-11-19')",ctx);
+      assert.equal(vm.runInContext('selectedDate',ctx),'2026-11-18','cannot select day after termination');
+      // No termination: normal editing remains available.
+      vm.runInContext("state.data.employees[0].fire_date=''",ctx);
+      assert.equal(vm.runInContext("graphDateAllowed(agEmployee(),'2026-11-19')",ctx),true,'active employee must retain normal graph');
+    }
     if (step.verifyDate) {
       for (const [raw,expected] of [
         ['01.11.2026','2026-11-01'],
@@ -196,6 +223,8 @@ execute([{
     assert.ok(page.includes('ДД.ММ.ГГГГ'),'manual date format must be visible');
   }
 }],fixture(true));
+
+execute([{module:'autograf',section:'graph',label:'terminated employee calendar and norms ignore days after end',verifyTermination:true}],fixture(true));
 
 const unsafeName=fixture(true);
 unsafeName.data.employees[0].full_name="О'Брайен \"Иван\" <Проверка>";
