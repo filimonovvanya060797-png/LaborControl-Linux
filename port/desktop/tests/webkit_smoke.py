@@ -126,7 +126,62 @@ SCRIPT = r"""
     throw Error('Valid cycle must preview dates for the selected point without saving');
   if (state.data.flight_dates.length)
     throw Error('Cycle preview must not write to database');
+  // Batch UX check: actual DOM after a preview must retain anchors and show cancellation.
+  if (document.getElementById('fcfirst').value !== '2026-09-01' ||
+      document.getElementById('fcsecond').value !== '2026-09-30')
+    throw Error('Flight cycle preview lost original anchor dates after redraw');
+  const cancelCycle = document.querySelector('#flightCyclePreviewBox button[onclick="cancelFlightCyclePreview()"]');
+  if (!cancelCycle) throw Error('Flight cycle preview has no Cancel action');
+  cancelCycle.click();
+  if (flightCyclePreview || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle()"]'))
+    throw Error('Cancelled flight cycle preview still offers Save');
+  if (document.getElementById('fcfirst').value !== '2026-09-01')
+    throw Error('Cancelling a preview should preserve editable anchor dates');
+  calcFlightCycle();
+  r11DateFields.enhanceInside(document.getElementById('page'));
+  const updatedSecond = document.querySelector('[data-r11-for="fcsecond"]');
+  if (!updatedSecond) throw Error('Updated cycle form must keep typed input');
+  updatedSecond.value = '02102026';
+  updatedSecond.dispatchEvent(new Event('input',{bubbles:true}));
+  if (flightCyclePreview !== null || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle()"]'))
+    throw Error('Edited input must invalidate old cycle preview automatically');
+  if (state.data.flight_dates.length) throw Error('Preview or cancel wrote flight data');
+  const flightEdit = {id:91,collection_point:'Тюмень',date:'2026-10-02',source:'Ручной ввод',note:'Учебный'};
+  editFlight(flightEdit);
+  if (document.getElementById('flsubmit')?.textContent !== 'Сохранить изменения')
+    throw Error('Editing a flight must show save-edit state');
+  clearFlightForm();
+  if (document.getElementById('flsubmit')?.textContent !== 'Добавить дату' ||
+      document.getElementById('flid')?.value)
+    throw Error('Cancel flight edit must return to new-flight mode');
+  outcome.push({label:'Autograf: preview Cancel, preserved dates, stale invalidation, edit/cancel',ok:true,error:''});
   outcome.push({label:'flight point selection with empty routes and cycle preview only',ok:true,error:''});
+  // The constructor and vacations also expose explicit cancellation before persistence.
+  const vacationTemplate = vacationPanel(agEmployee());
+  vacationPreview = {start:'2026-10-01',end:'2026-10-14',days:14,holidays:0,reduction:80,absence_days:14};
+  if (!vacationPanel(agEmployee()).includes('onclick="cancelVacationPreview()"'))
+    throw Error('Vacation preview is missing Cancel');
+  vacationPreview = null;
+  setAgSection('constructor');
+  constructorPreview = {warnings:[],phases:[],monthly:[],type:'Тест',days:{}};
+  render();
+  const cancelConstructor = document.querySelector('#constructorPreviewBox button[onclick="cancelConstructorPreview()"]');
+  if (!cancelConstructor) throw Error('Constructor preview has no Cancel');
+  cancelConstructor.click();
+  if (constructorPreview || document.querySelector('#constructorPreviewBox button[onclick="applyConstructorPreview()"]'))
+    throw Error('Cancel constructor must remove its save action');
+  setAgSection('types');
+  state.data.schedule_types.push({id:919,collection_point:'Тюмень',name:'Учебный',pair_name:'',phase:'A',active:true,note:''});
+  render();
+  editScheduleTypeId(919);
+  if (document.getElementById('stsubmit')?.textContent !== 'Сохранить изменения')
+    throw Error('Editing a schedule type must show save-edit state');
+  clearScheduleType();
+  if (document.getElementById('stsubmit')?.textContent !== 'Добавить вид графика' ||
+      document.getElementById('stid')?.value)
+    throw Error('Cancel schedule edit must reset editing state');
+  state.data.schedule_types = state.data.schedule_types.filter(x=>x.id!==919);
+  outcome.push({label:'Autograf: vacation/constructor previews and schedule edit cancellation',ok:true,error:''});
   setAgSection('calendar');
   r11DateFields.enhanceInside(document.getElementById('page'));
   if (document.querySelectorAll('input[type="date"]:not(.emp-date-native)').length !==
