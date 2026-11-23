@@ -932,6 +932,7 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 			return nil,"",fmt.Errorf("первые ДП должны быть в одном году, с интервалом до 28 дней")
 		}
 		wantTypes:=r11Bool(body,"create_types")
+		adoptOnly:=r11Bool(body,"adopt_only")
 		name,phase:=r11String(body,"name"),r11String(body,"phase")
 		if wantTypes && (name==""||len(name)>145||strings.HasSuffix(name,".")||(phase!="A"&&phase!="B")) {
 			return nil,"",fmt.Errorf("укажите название графика без точки и первую рабочую/свободную фазу")
@@ -965,6 +966,16 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 			if q==1 {q=2}else{q=1}
 			expected=append(expected,struct{date string;seq int}{d.Format("2006-01-02"),q})
 		}
+		if adoptOnly {
+			hasLegacy:=false
+			for _,x:=range flights{
+				if r11String(x,"collection_point")==point && (r11Int(x,"cycle_id")==cid ||
+					(r11Int(x,"cycle_id")==0 && strings.Contains(r11String(x,"note"),legacyLabel))){
+					hasLegacy=true;break
+				}
+			}
+			if !hasLegacy {return nil,"",fmt.Errorf("для выбранных опор нет сохранённых дат; сначала создайте цикл")}
+		}
 		added,linked:=0,0
 		for _,v:=range expected {
 			var match map[string]json.RawMessage
@@ -985,7 +996,7 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 					return nil,"",fmt.Errorf("ДП %s принадлежит другой последовательности",v.date)
 				}
 				r11Put(match,"cycle_id",cid);r11Put(match,"sequence",v.seq);linked++
-			} else {
+			} else if !adoptOnly {
 				x:=map[string]json.RawMessage{}
 				r11Put(x,"id",r11NextID(root));r11Put(x,"collection_point",point)
 				r11Put(x,"cycle_id",cid);r11Put(x,"sequence",v.seq);r11Put(x,"date",v.date)
