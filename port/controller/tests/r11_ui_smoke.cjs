@@ -48,7 +48,7 @@ function execute(config, state) {
       elements.set(id,{
         innerHTML: '', textContent:'', value:'', checked:false, disabled:false,
         style:{}, dataset:{}, files:[],
-        focus() {}, setAttribute() {}, getAttribute() {return null},
+        focus() {}, click() {}, setSelectionRange(start,end) {this.selectionStart=start;this.selectionEnd=end}, setAttribute() {}, getAttribute() {return null},
         querySelector() {return null}, querySelectorAll(){return []}
       });
     }
@@ -105,6 +105,42 @@ function execute(config, state) {
       assert.equal(getElement('efire').value,'','clear must empty the persisted ISO value');
       vm.runInContext("document.getElementById('efiretext').value='15.11.2026';employeeDateTyped('efire')",ctx);
       assert.equal(getElement('efire').value,'2026-11-15','manual input must update the ISO value');
+      // Ввод без точек: 2 и 4 цифры автоматически завершаются разделителем.
+      for(const [digits,expected] of [
+        ['0','0'],['01','01.'],['011','01.1'],['0111','01.11.'],
+        ['01112026','01.11.2026'],['29112026','29.11.2026']
+      ]){
+        const input=getElement('ehiretext');input.value=digits;input.selectionStart=digits.length;input.selectionEnd=digits.length;
+        vm.runInContext("employeeDateTyped('ehire')",ctx);
+        assert.equal(input.value,expected,'date typing mask: '+digits);
+      }
+      assert.equal(getElement('ehire').value,'2026-11-29','eight-digit date must persist as ISO');
+      // Прямое вставление ДД.ММ.ГГГГ и ISO также поддерживается.
+      for(const [source,expected] of [
+        ['18.11.2026','18.11.2026'],['2026-11-18','18.11.2026']
+      ]){
+        const input=getElement('ehiretext');input.value=source;input.selectionStart=source.length;input.selectionEnd=source.length;
+        vm.runInContext("employeeDateTyped('ehire')",ctx);
+        assert.equal(input.value,expected,'date paste mask: '+source);
+        assert.equal(getElement('ehire').value,'2026-11-18','date paste must sync ISO');
+      }
+      // Удаление возле вставленных точек не блокирует курсор.
+      let input=getElement('ehiretext');input.value='01.11.2026';input.selectionStart=3;input.selectionEnd=3;
+      vm.runInContext("employeeDateKeydown({key:'Backspace',preventDefault(){}},'ehire')",ctx);
+      assert.equal(input.value,'01.1.2026','Backspace after automatic dot deletes nearest digit');
+      input.value='01.11.2026';input.selectionStart=2;input.selectionEnd=2;
+      vm.runInContext("employeeDateKeydown({key:'Delete',preventDefault(){}},'ehire')",ctx);
+      assert.equal(input.value,'01.1.2026','Delete before automatic dot deletes nearest digit');
+      input.value='31022026';input.selectionStart=8;input.selectionEnd=8;
+      vm.runInContext("employeeDateTyped('ehire')",ctx);
+      assert.equal(input.value,'31.02.2026','impossible date should be visible for correction');
+      assert.equal(getElement('ehire').value,'','impossible date must never be stored as ISO');
+      let opened=false;getElement('ehirepicker').showPicker=()=>{opened=true};
+      vm.runInContext("employeeDateOpenCalendar('ehire')",ctx);
+      assert.ok(opened,'calendar button must open native date selector');
+      vm.runInContext("employeeDateClear('ehire')",ctx);
+      assert.equal(getElement('ehiretext').value,'','cross must clear text');
+      assert.equal(getElement('ehire').value,'','cross must clear ISO');
     }
     if (typeof step.verifyPage === 'function') step.verifyPage(page);
     process.stdout.write('OK '+step.label+'\n');
@@ -149,8 +185,14 @@ execute([{
     for(const id of ['ehiretext','efiretext','ehirepicker','efirepicker']) {
       assert.ok(page.includes('id="'+id+'"'),'employee date field missing: '+id);
     }
-    assert.equal((page.match(/Очистить дату<\/button>/g)||[]).length,2,
-      'both dates need an explicit local clear control');
+    assert.equal((page.match(/title="Очистить дату">×<\/button>/g)||[]).length,2,
+      'both date fields need their own compact clear cross');
+    assert.equal((page.match(/class="emp-date-row"/g)||[]).length,2,
+      'hire and termination must have exactly one compact date row');
+    assert.equal((page.match(/employeeDateOpenCalendar\('/g)||[]).length,2,
+      'both date fields must offer calendar access');
+    assert.equal((page.match(/maxlength="10"/g)||[]).length,2,
+      'date fields should not allow more than DD.MM.YYYY');
     assert.ok(page.includes('ДД.ММ.ГГГГ'),'manual date format must be visible');
   }
 }],fixture(true));
