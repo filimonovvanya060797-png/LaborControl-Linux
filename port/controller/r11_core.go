@@ -538,6 +538,18 @@ func (h *controller) r11EmployeeDelete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// r11PlanDateAllowed is a hard server-side boundary for editing a person's plan.
+// The date of termination itself remains writable. Historical records and
+// SAP/ISAT fact imports are not deleted or rewritten by this check.
+func r11PlanDateAllowed(emp map[string]json.RawMessage, date string) error {
+    if fire := r11String(emp, "fire_date"); fire != "" && date > fire {
+        formatted := fire
+        if d, err := time.Parse("2006-01-02", fire); err == nil { formatted = d.Format("02.01.2006") }
+        return fmt.Errorf("после увольнения нельзя изменять план: последний день %s включительно", formatted)
+    }
+    return nil
+}
+
 func (h *controller) r11DaySave(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -557,6 +569,7 @@ func (h *controller) r11DaySave(w http.ResponseWriter, r *http.Request) {
 	if emp == nil { r11WriteError(w,400,fmt.Errorf("сотрудник %q не найден",r11String(body,"TabNo"))); return }
 	date := r11String(body,"Date")
 	if !r11DateOK(date) { r11WriteError(w,400,fmt.Errorf("дата должна иметь формат YYYY-MM-DD")); return }
+    if err := r11PlanDateAllowed(emp,date); err != nil { r11WriteError(w,400,err); return }
 	days, err := r11Array(root,"days")
 	if err != nil { r11WriteError(w,500,err); return }
 	employeeID := r11Int(emp,"id")
@@ -595,6 +608,7 @@ func (h *controller) r11DayDelete(w http.ResponseWriter, r *http.Request) {
 		employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
 		emp,_:=r11FindEmployee(employees,r11String(body,"tab_no"));if emp==nil{return nil,"",fmt.Errorf("сотрудник не найден")}
 		date:=r11String(body,"date");if !r11DateOK(date){return nil,"",fmt.Errorf("неверная дата")}
+        if err:=r11PlanDateAllowed(emp,date);err!=nil{return nil,"",err}
 		days,err:=r11Array(root,"days");if err!=nil{return nil,"",err}
 		kept:=days[:0];removed:=0
 		for _,d:=range days{if r11Int(d,"employee_id")==r11Int(emp,"id")&&r11String(d,"date")==date{removed++;continue};kept=append(kept,d)}
