@@ -28,6 +28,22 @@
 .day-mini-wrap.range-selected{outline:3px solid #2563eb!important;outline-offset:-2px;border-radius:5px;z-index:3}
 .day-mini-wrap.range-selected .day-mini{background-image:linear-gradient(#93c5fd66,#93c5fd66)!important}
 </style>
+
+<style id="r11-all-date-style">
+/* Unified date controls: original input remains the ISO-valued source for all R11 handlers. */
+.r11-date-widget{min-width:0;width:100%}
+.r11-date-row{display:flex;align-items:center;gap:5px;min-width:0;width:100%}
+.r11-date-row .r11-date-text{flex:1 1 95px;width:100%;min-width:0;font-variant-numeric:tabular-nums}
+.r11-date-calendar{position:relative;flex:0 0 34px;height:39px}
+.r11-date-btn{display:flex;align-items:center;justify-content:center;flex:0 0 34px;width:34px;height:39px;padding:0;border:1px solid #cad2df;border-radius:8px;background:#f7f9ff;color:#2448af;cursor:pointer;font-size:20px}
+.r11-date-btn:hover:not(:disabled){background:#edf2ff}
+.r11-date-btn:disabled{cursor:not-allowed;opacity:.45}
+.r11-date-btn svg{display:block;width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.r11-date-native{position:absolute!important;left:0!important;top:0!important;width:1px!important;height:1px!important;opacity:0!important;padding:0!important;border:0!important;pointer-events:none!important}
+.r11-date-text.r11-date-invalid{border-color:#c32828;background:#fff8f8}
+.r11-date-error{display:block;color:#aa2b2b;font-size:11px;line-height:1.3;margin-top:3px}
+.r11-date-error:empty{display:none}
+</style>
 </head><body><div class="app"><aside class="side"><div class="brand">Рабочая система<small>техника по труду · Табель R6</small></div><div id="nav" class="nav"></div></aside><main class="main"><div class="top"><div><h1 id="title">Главная</h1><div id="subtitle" class="muted"></div></div><div class="badge" id="version"></div></div><div id="page"></div><div class="footer">Локальная программа. Данные не отправляются в интернет.</div></main></div><div id="toast" class="toast"></div>
 <style id="v096-css">
 .note-mark{position:absolute;left:2px;top:2px;z-index:7;font-size:10px;color:#7c3aed;text-shadow:0 1px 0 #fff;cursor:help}.proposal-mark{position:absolute;left:1px;right:1px;bottom:1px;z-index:8;font-size:8px;font-weight:800;background:#6f42c1;color:#fff;border-radius:3px;padding:1px 2px;line-height:1.1;pointer-events:none}.revision-diff{box-shadow:0 0 0 3px #d97706 inset!important;background:#fff7e6!important}.active-revision{background:#f0fbf4}.annotation{border-left:4px solid #6f42c1}.annotation .color-actions button{border:1px solid #d8dfeb;border-radius:8px;padding:7px 10px;cursor:pointer}.sep{border:0;border-top:1px solid #e5e7eb;margin:14px 0}.year-step{display:flex;gap:4px;align-items:center}.year-step input{min-width:100px}.year-step .tiny{flex:0 0 auto}.journal-badge{border:0;cursor:pointer}.journal-lines>div{padding:4px 0;border-bottom:1px dashed #e5e7eb}.hidden{display:none!important}.due{background:#fff7f7}.note-dot{color:#7c3aed;font-size:16px;line-height:1}.version-preview summary{cursor:pointer;font-weight:700;color:#334155}.statusline select{max-width:480px}.color-actions{align-items:center}
@@ -1007,6 +1023,232 @@ async function flightWizardSaveAndCalc(btn){let p=employeeFlightImport;if(!p)ret
       });
     }, 0);
   }, true);
+})();
+</script>
+
+<script id="r11-all-date-fields">
+/* ALT Linux WebKitGTK: native date inputs are not reliably keyboard editable.
+   Keep their original id, ISO value, onchange handler, min/max and API contracts intact. */
+(function () {
+  'use strict';
+  const nativeValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document.createElement('input')), 'value');
+  function parseDate(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    if (!s) return '';
+    let day, month, year;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      year = s.slice(0,4);month = s.slice(5,7);day = s.slice(8,10);
+    } else {
+      const digits = s.replace(/\D/g, '');
+      if (digits.length !== 8) return null;
+      day = digits.slice(0,2);month = digits.slice(2,4);year = digits.slice(4,8);
+    }
+    const y = Number(year), m = Number(month), d = Number(day);
+    if (y < 1 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    const dt = new Date(0);
+    dt.setUTCFullYear(y, m - 1, d);
+    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+    return year + '-' + month + '-' + day;
+  }
+  function displayDate(iso) {
+    return iso ? iso.slice(8,10) + '.' + iso.slice(5,7) + '.' + iso.slice(0,4) : '';
+  }
+  function formatTyped(raw) {
+    const s = String(raw == null ? '' : raw);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return displayDate(s);
+    const digits = s.replace(/\D/g, '').slice(0,8);
+    return digits.slice(0,2) + (digits.length > 2 ? '.' + digits.slice(2,4) : '') +
+      (digits.length > 4 ? '.' + digits.slice(4,8) : '');
+  }
+  function caretForDigits(str, count) {
+    if (count <= 0) return 0;
+    let i = 0, n = 0;
+    while (i < str.length && n < count) {
+      if (/\d/.test(str.charAt(i))) n++;
+      i++;
+    }
+    if (str.charAt(i) === '.') i++;
+    return i;
+  }
+  function enhance(input) {
+    if (!input || input.dataset.r11DateEnhanced || input.classList.contains('emp-date-native')) return;
+    input.dataset.r11DateEnhanced = '1';
+    const widget = document.createElement('div');
+    widget.className = 'r11-date-widget';
+    const row = document.createElement('div');
+    row.className = 'r11-date-row';
+    const typed = document.createElement('input');
+    typed.type = 'text';
+    typed.className = 'r11-date-text';
+    typed.inputMode = 'numeric';
+    typed.maxLength = 10;
+    typed.placeholder = 'ДД.ММ.ГГГГ';
+    typed.autocomplete = 'off';
+    typed.setAttribute('aria-label', (input.getAttribute('aria-label') || 'Дата') + '. Введите восемь цифр, точки появятся автоматически');
+    typed.setAttribute('data-r11-for', input.id || '');
+    const calendar = document.createElement('div');
+    calendar.className = 'r11-date-calendar';
+    const calendarButton = document.createElement('button');
+    calendarButton.type = 'button';
+    calendarButton.className = 'r11-date-btn';
+    calendarButton.title = 'Выбрать дату в календаре';
+    calendarButton.setAttribute('aria-label', 'Открыть календарь');
+    calendarButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M7 3v4M17 3v4M3 10h18"></path></svg>';
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'r11-date-btn';
+    clear.title = 'Очистить дату';
+    clear.setAttribute('aria-label', 'Очистить дату');
+    clear.textContent = '\u00d7';
+    const error = document.createElement('span');
+    error.className = 'r11-date-error';
+    error.setAttribute('role', 'status');
+    const parent = input.parentNode;
+    parent.insertBefore(widget, input);
+    widget.appendChild(row);
+    widget.appendChild(error);
+    row.appendChild(typed);
+    row.appendChild(calendar);
+    row.appendChild(clear);
+    calendar.appendChild(calendarButton);
+    calendar.appendChild(input);
+    input.classList.add('r11-date-native');
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
+    let touched = false;
+    function validation(raw, show) {
+      const iso = parseDate(raw);
+      const bad = !!raw && (iso === null || (input.min && iso < input.min) || (input.max && iso > input.max));
+      const complete = String(raw).replace(/\D/g, '').length >= 8;
+      error.textContent = bad && (show || complete) ?
+        (iso === null ? 'Проверьте дату: ДД.ММ.ГГГГ' : 'Дата выходит за допустимый период') : '';
+      typed.classList.toggle('r11-date-invalid', bad && (show || complete));
+      typed.setAttribute('aria-invalid', bad && (show || complete) ? 'true' : 'false');
+      typed.setCustomValidity(bad ? 'Введите корректную дату ДД.ММ.ГГГГ' : '');
+      return bad ? '' : iso;
+    }
+    function syncFromNative() {
+      typed.value = displayDate(nativeValue.get.call(input));
+      typed.disabled = input.disabled;
+      typed.readOnly = input.readOnly;
+      clear.disabled = input.disabled || input.readOnly;
+      calendarButton.disabled = input.disabled || input.readOnly;
+      touched = false;
+      validation(typed.value, false);
+    }
+    // Original app frequently sets input.value in edit and clear handlers.
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get: function () { return nativeValue.get.call(this); },
+      set: function (v) { nativeValue.set.call(this, v);syncFromNative(); }
+    });
+    function notifyNative() {
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+    function typedChanged() {
+      const old = typed.value, caret = typed.selectionStart == null ? old.length : typed.selectionStart;
+      const before = old.slice(0, caret).replace(/\D/g, '').length;
+      typed.value = formatTyped(old);
+      if (typeof typed.setSelectionRange === 'function') {
+        const next = caretForDigits(typed.value, before);
+        typed.setSelectionRange(next, next);
+      }
+      touched = true;
+      const iso = validation(typed.value, false);
+      const prev = nativeValue.get.call(input);
+      // Bypass the custom setter so a partial date is not replaced by an empty mirror.
+      nativeValue.set.call(input, iso || '');
+      if (iso !== prev && (iso || typed.value === '')) notifyNative();
+    }
+    typed.addEventListener('input', typedChanged);
+    typed.addEventListener('blur', function () { if (touched) validation(typed.value, true); });
+    typed.addEventListener('keydown', function (event) {
+      if (event.key !== 'Backspace' && event.key !== 'Delete') return;
+      if (typed.selectionStart !== typed.selectionEnd) return;
+      const p = typed.selectionStart, raw = typed.value;
+      if (!(event.key === 'Backspace' && p > 0 && raw.charAt(p-1) === '.') &&
+          !(event.key === 'Delete' && raw.charAt(p) === '.')) return;
+      event.preventDefault();
+      const digits = raw.replace(/\D/g, '').split('');
+      const before = raw.slice(0,p).replace(/\D/g, '').length;
+      const remove = event.key === 'Backspace' ? before-1 : before;
+      if (remove < 0 || remove >= digits.length) return;
+      digits.splice(remove,1);
+      typed.value = formatTyped(digits.join(''));
+      const next = caretForDigits(typed.value, remove);
+      typed.setSelectionRange(next,next);
+      touched = true;
+      const iso = validation(typed.value, false);
+      const prev = nativeValue.get.call(input);
+      nativeValue.set.call(input, iso || '');
+      if (iso !== prev && (iso || !typed.value)) notifyNative();
+    });
+    calendarButton.addEventListener('click', function () {
+      if (input.disabled) return;
+      input.focus();
+      if (typeof input.showPicker === 'function') {
+        try { input.showPicker(); return; } catch (_) { /* Use native fallback below. */ }
+      }
+      input.click();
+    });
+    clear.addEventListener('click', function () {
+      if (input.disabled || input.readOnly) return;
+      typed.value = '';
+      nativeValue.set.call(input, '');
+      touched = false;
+      validation('', false);
+      typed.focus();
+      notifyNative();
+    });
+    input.addEventListener('input', syncFromNative);
+    input.addEventListener('change', syncFromNative);
+    // Keep programmatic state changes to the source input in sync.
+    const attributeObserver = new MutationObserver(function () { syncFromNative(); });
+    attributeObserver.observe(input, {attributes:true,attributeFilter:['disabled','readonly','min','max','value']});
+    syncFromNative();
+  }
+  function enhanceInside(root) {
+    if (!root || !root.querySelectorAll) return;
+    if (root.matches && root.matches('input[type="date"]:not(.emp-date-native)')) enhance(root);
+    root.querySelectorAll('input[type="date"]:not(.emp-date-native)').forEach(enhance);
+  }
+  // Do not let an incomplete or impossible optional date silently become an empty ISO value on Save.
+  document.addEventListener('click', function (event) {
+    const target = event.target && event.target.closest ? event.target.closest('button.primary') : null;
+    if (!target) return;
+    const panel = target.closest('.panel');
+    if (!panel) return;
+    const dates = panel.querySelectorAll('.r11-date-text');
+    for (const typed of dates) {
+      const raw = typed.value.trim(), originalId = typed.getAttribute('data-r11-for');
+      const source = originalId ? document.getElementById(originalId) : null;
+      if (!source || source.disabled || !raw) continue;
+      const iso = parseDate(raw);
+      if (iso !== null && (!source.min || iso >= source.min) && (!source.max || iso <= source.max)) continue;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      typed.focus();
+      typed.classList.add('r11-date-invalid');
+      typed.setAttribute('aria-invalid', 'true');
+      const error = typed.closest('.r11-date-widget')?.querySelector('.r11-date-error');
+      if (error) error.textContent = iso === null ? 'Проверьте дату: ДД.ММ.ГГГГ' : 'Дата выходит за допустимый период';
+      if (typeof toast === 'function') toast('Исправьте дату ДД.ММ.ГГГГ перед сохранением', true);
+      return;
+    }
+  }, true);
+  window.r11DateFields = {parseDate:parseDate,formatTyped:formatTyped,enhanceInside:enhanceInside};
+  enhanceInside(document);
+  const observer = new MutationObserver(function (records) {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if ((node.matches && node.matches('input[type="date"]:not(.emp-date-native)')) ||
+            (node.querySelector && node.querySelector('input[type="date"]:not(.emp-date-native)'))) enhanceInside(node);
+      }
+    }
+  });
+  observer.observe(document.body || document.documentElement,{childList:true,subtree:true});
 })();
 </script>
 </body></html>

@@ -10,7 +10,8 @@ const vm = require('node:vm');
 
 const html = fs.readFileSync(path.resolve(__dirname, '../r11_original.html'), 'utf8');
 const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)];
-assert.equal(scripts.length, 2, 'expected original R11 JS and separate Russian file picker');
+assert.equal(scripts.length, 3, 'expected R11 JS, Russian file picker and unified date fields');
+assert.match(scripts[2][0], /id="r11-all-date-fields"/, 'date enhancements must be the third separate script');
 
 class FakeElement {
   constructor(tagName, id = '') {
