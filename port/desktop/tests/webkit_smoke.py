@@ -57,6 +57,22 @@ SCRIPT = r"""
   go('autograf');
   setAgSection('flights');
   r11DateFields.enhanceInside(document.getElementById('page'));
+  // Regression for an empty flight_routes catalog: previously every selector was empty.
+  const flightPointInput = document.getElementById('flpoint');
+  const batchPointInput = document.getElementById('flbatchpoint');
+  const cyclePointInput = document.getElementById('fcpoint');
+  const filterPointInput = document.querySelector('select[onchange*="flightPoint=this.value"]');
+  if (!flightPointInput || !batchPointInput || !cyclePointInput || !filterPointInput)
+    throw Error('Flight collection-point selectors are missing');
+  for (const [name,field] of [['single flight',flightPointInput],['batch flight',batchPointInput],
+                               ['cycle',cyclePointInput],['filter',filterPointInput]]) {
+    if (![...field.options].some(o=>o.value==='Тюмень'))
+      throw Error(name+' cannot select the employee city without routes');
+  }
+  if (cyclePointInput.value !== 'Тюмень')
+    throw Error('Cycle must select existing employee point instead of an arbitrary fallback');
+  if (state.data.flight_routes.length !== 0)
+    throw Error('Test requires missing flight route catalog');
   const flight = document.getElementById('fldate');
   const flightText = document.querySelector('[data-r11-for="fldate"]');
   const fcFirstText = document.querySelector('[data-r11-for="fcfirst"]');
@@ -93,6 +109,24 @@ SCRIPT = r"""
   fcFirstText.dispatchEvent(new Event('input', {bubbles:true}));
   if (document.getElementById('fcfirst').value !== '2026-11-23')
     throw Error('Flight cycle anchor ISO synchronization failed');
+  // No database writes: reversed user-provided anchors should fail; chronological ones preview a year.
+  fcFirstText.value = '01092026';
+  fcFirstText.dispatchEvent(new Event('input', {bubbles:true}));
+  fcSecondText.value = '30012026';
+  fcSecondText.dispatchEvent(new Event('input', {bubbles:true}));
+  calcFlightCycle();
+  if (flightCyclePreview !== null)
+    throw Error('Reverse anchor dates must be rejected, even with valid point');
+  fcSecondText.value = '30092026';
+  fcSecondText.dispatchEvent(new Event('input', {bubbles:true}));
+  calcFlightCycle();
+  if (!flightCyclePreview || flightCyclePreview.point !== 'Тюмень' ||
+      flightCyclePreview.first !== '2026-09-01' || flightCyclePreview.second !== '2026-09-30' ||
+      flightCyclePreview.items.length < 3)
+    throw Error('Valid cycle must preview dates for the selected point without saving');
+  if (state.data.flight_dates.length)
+    throw Error('Cycle preview must not write to database');
+  outcome.push({label:'flight point selection with empty routes and cycle preview only',ok:true,error:''});
   setAgSection('calendar');
   r11DateFields.enhanceInside(document.getElementById('page'));
   if (document.querySelectorAll('input[type="date"]:not(.emp-date-native)').length !==
