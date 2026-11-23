@@ -789,6 +789,15 @@ func (h *controller) r11SchedulePairSave(w http.ResponseWriter, r *http.Request)
 		rows, err := r11Array(root, "schedule_types")
 		if err != nil { return nil, "", err }
 		id := r11Int(body, "id")
+		// A pair not bound to a specific cycle would produce mixed work plans
+		// when this city has several independent flight cycles.
+		pointForPair := r11String(body,"collection_point")
+		if id==0 && pointForPair!="" {
+			cycles,e:=r11Array(root,"flight_cycles");if e!=nil{return nil,"",e}
+			count:=0
+			for _,c:=range cycles{if r11String(c,"collection_point")==pointForPair {count++}}
+			if count>1 {return nil,"",fmt.Errorf("в пункте %s несколько циклов рейсов: создайте пару из нужного цикла",pointForPair)}
+		}
 		if id < 0 { return nil, "", fmt.Errorf("неверный идентификатор графика") }
 		point, name, phase := r11String(body, "collection_point"), r11String(body, "name"), r11String(body, "phase")
 		var source map[string]json.RawMessage
