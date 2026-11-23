@@ -343,3 +343,83 @@ func TestR11SchedulePairRejectConflictingExistingPartnerWithoutWrites(t *testing
 		t.Fatalf("server rewrote conflicting partner: %+v",after)
 	}
 }
+
+func TestR11SchedulePairDifferentNumberedNames(t *testing.T) {
+	h := newR11TestController(t)
+	b := "{\"collection_point\":\"Сургут\",\"name\":\"Сург-Тал-Сург 7\",\"partner_name\":\"Сург-Тал-Сург 16\",\"phase\":\"A\"}"
+	rec := callR11Core(h, http.MethodPost, "/api/autograf/schedule-type/pair", b)
+	if rec.Code != http.StatusOK { t.Fatalf("save custom numbered pair: %d %s", rec.Code, rec.Body.String()) }
+	rows := readSchedulePairRows(t, h)
+	if len(rows) != 2 ||
+		r11String(rows[0],"name") != "Сург-Тал-Сург 7" || r11String(rows[0],"pair_name") != "Сург-Тал-Сург 16" ||
+		r11String(rows[0],"phase") != "A" ||
+		r11String(rows[1],"name") != "Сург-Тал-Сург 16" || r11String(rows[1],"pair_name") != "Сург-Тал-Сург 7" ||
+		r11String(rows[1],"phase") != "B" {
+		t.Fatalf("incorrect custom partner pair: %+v", rows)
+	}
+	again:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/pair",b)
+	if again.Code!=http.StatusBadRequest || len(readSchedulePairRows(t,h))!=2 {
+		t.Fatalf("custom repeat must not create duplicates: %d %s",again.Code,again.Body.String())
+	}
+}
+
+func TestR11SchedulePairLinkTwoExistingNumberedTypes(t *testing.T) {
+	h:=newR11TestController(t)
+	for _,body:=range []string{
+		"{\"collection_point\":\"Сургут\",\"name\":\"Сург-Тал-Сург 7\",\"phase\":\"A\",\"active\":true,\"note\":\"первый\"}",
+		"{\"collection_point\":\"Сургут\",\"name\":\"Сург-Тал-Сург 16\",\"phase\":\"B\",\"active\":true,\"note\":\"второй\"}",
+	} {
+		rec:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/save",body)
+		if rec.Code!=http.StatusOK { t.Fatalf("seed: %d %s",rec.Code,rec.Body.String()) }
+	}
+	rows:=readSchedulePairRows(t,h)
+	firstId,secondId:=r11Int(rows[0],"id"),r11Int(rows[1],"id")
+	rec:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/pair",
+		fmt.Sprintf("{\"id\":%d,\"partner_name\":\"Сург-Тал-Сург 16\"}",firstId))
+	if rec.Code!=http.StatusOK { t.Fatalf("link existing pair: %d %s",rec.Code,rec.Body.String()) }
+	rows=readSchedulePairRows(t,h)
+	if len(rows)!=2 || r11Int(rows[0],"id")!=firstId || r11Int(rows[1],"id")!=secondId ||
+		r11String(rows[0],"pair_name")!="Сург-Тал-Сург 16" ||
+		r11String(rows[1],"pair_name")!="Сург-Тал-Сург 7" ||
+		r11String(rows[0],"note")!="первый" || r11String(rows[1],"note")!="второй" {
+		t.Fatalf("existing rows unexpectedly changed: %+v",rows)
+	}
+}
+
+func TestR11SchedulePairRejectUnsafeExistingPartnerChanges(t *testing.T) {
+	h:=newR11TestController(t)
+	for _,body:=range []string{
+		"{\"collection_point\":\"Сургут\",\"name\":\"Сург-Тал-Сург 7\",\"phase\":\"A\",\"pair_name\":\"Сург-Тал-Сург 7.\",\"active\":true}",
+		"{\"collection_point\":\"Сургут\",\"name\":\"Сург-Тал-Сург 7.\",\"phase\":\"B\",\"pair_name\":\"Сург-Тал-Сург 7\",\"active\":true}",
+		"{\"collection_point\":\"Сургут\",\"name\":\"Сург-Тал-Сург 16\",\"phase\":\"B\",\"active\":true}",
+	} {
+		rec:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/save",body)
+		if rec.Code!=http.StatusOK { t.Fatalf("seed: %d %s",rec.Code,rec.Body.String()) }
+	}
+	rows:=readSchedulePairRows(t,h)
+	rec:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/pair",
+		fmt.Sprintf("{\"id\":%d,\"partner_name\":\"Сург-Тал-Сург 16\"}",r11Int(rows[0],"id")))
+	if rec.Code!=http.StatusBadRequest { t.Fatalf("unsafe re-pair must fail: %d %s",rec.Code,rec.Body.String()) }
+	after:=readSchedulePairRows(t,h)
+	if len(after)!=3 || r11String(after[0],"pair_name")!="Сург-Тал-Сург 7." ||
+		r11String(after[1],"pair_name")!="Сург-Тал-Сург 7" ||
+		r11String(after[2],"pair_name")!="" {
+		t.Fatalf("unsafe re-pair mutated existing links: %+v",after)
+	}
+}
+
+func TestR11SchedulePairRejectWrongPhaseForExistingNumberedPartner(t *testing.T) {
+	h:=newR11TestController(t)
+	for _,body:=range []string{
+		"{\"collection_point\":\"Сургут\",\"name\":\"Сург-Тал-Сург 7\",\"phase\":\"A\",\"active\":true}",
+		"{\"collection_point\":\"Сургут\",\"name\":\"Сург-Тал-Сург 16\",\"phase\":\"A\",\"active\":true}",
+	} {
+		rec:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/save",body)
+		if rec.Code!=http.StatusOK { t.Fatalf("seed: %d %s",rec.Code,rec.Body.String()) }
+	}
+	rows:=readSchedulePairRows(t,h)
+	rec:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/pair",
+		fmt.Sprintf("{\"id\":%d,\"partner_name\":\"Сург-Тал-Сург 16\"}",r11Int(rows[0],"id")))
+	if rec.Code!=http.StatusBadRequest { t.Fatalf("wrong phase must refuse: %d %s",rec.Code,rec.Body.String()) }
+	if len(readSchedulePairRows(t,h))!=2 { t.Fatal("wrong-phase link wrote new rows") }
+}
