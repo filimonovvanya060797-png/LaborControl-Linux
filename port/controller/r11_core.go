@@ -550,6 +550,31 @@ func r11PlanDateAllowed(emp map[string]json.RawMessage, date string) error {
     return nil
 }
 
+// A restored version may contain obsolete plan entries past the end of employment.
+// Keep any existing post-termination rows unchanged; restoring cannot add, change,
+// or erase them. Other pre-termination days may be restored normally.
+func r11SafeRestoreDays(emp map[string]json.RawMessage, employeeID int64, current, snapshot []map[string]json.RawMessage) ([]map[string]json.RawMessage, error) {
+    fire := r11String(emp,"fire_date")
+    if fire=="" { return snapshot,nil }
+    historical := map[string]map[string]json.RawMessage{}
+    for _,d := range current {
+        date:=r11String(d,"date")
+        if r11Int(d,"employee_id")==employeeID && date>fire { historical[date]=d }
+    }
+    safe:=make([]map[string]json.RawMessage,0,len(snapshot)+len(historical))
+    for _,d := range snapshot {
+        date:=r11String(d,"date")
+        if r11Int(d,"employee_id")!=employeeID || date<=fire { safe=append(safe,d);continue }
+        original,exists:=historical[date]
+        if !exists { return nil,fmt.Errorf("версия содержит план за %s после увольнения: восстановление запрещено",date) }
+        before,_:=json.Marshal(original)
+        after,_:=json.Marshal(d)
+        if !bytes.Equal(before,after) { return nil,fmt.Errorf("версия изменяет исторический день %s после увольнения: восстановление запрещено",date) }
+    }
+    for _,d:=range historical { safe=append(safe,d) }
+    return safe,nil
+}
+
 func (h *controller) r11DaySave(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -653,6 +678,7 @@ func (h *controller) r11RVDSave(w http.ResponseWriter, r *http.Request) {
 		emp,_:=r11FindEmployee(employees,r11String(body,"TabNo"));if emp==nil{return nil,"",fmt.Errorf("сотрудник не найден")}
 		a,b:=r11String(body,"DateFrom"),r11String(body,"DateTo");if b==""{b=a}
 		if !r11DateOK(a)||!r11DateOK(b)||b<a{return nil,"",fmt.Errorf("проверьте даты РВД")}
+        if err:=r11PlanDateAllowed(emp,b);err!=nil{return nil,"",err}
 		typ:=r11Int(body,"Type");if typ!=1&&typ!=2{return nil,"",fmt.Errorf("тип РВД должен быть 1 или 2")}
 		rows,err:=r11Array(root,"rvd");if err!=nil{return nil,"",err}
 		item:=map[string]json.RawMessage{}
@@ -846,10 +872,18 @@ func (h *controller) r11VersionRestore(w http.ResponseWriter, r *http.Request) {
 		}
 		days, err := r11Array(root, "days")
 		if err != nil { return nil, "", err }
+        employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
+        emp,_:=r11FindEmployeeID(employees,employeeID);if emp==nil{return nil,"",fmt.Errorf("сотрудник восстановленной версии не найден")}
+        snapshot,err=r11SafeRestoreDays(emp,employeeID,days,snapshot)
+        if err!=nil{return nil,"",err}
 		kept := make([]map[string]json.RawMessage, 0, len(days)+len(snapshot))
 		keptIDs := map[int64]bool{}
 		for _, d := range days {
-			if r11Int(d, "employee_id") == employeeID && strings.HasPrefix(r11String(d, "date"), prefix) { continue }
+			if r11Int(d, "employee_id") == employeeID && strings.HasPrefix(r11String(d, "date"), prefix) {
+                // After termination history is immutable; it is supplied unmodified by r11SafeRestoreDays.
+                if fire:=r11String(emp,"fire_date");fire!=""&&r11String(d,"date")>fire { continue }
+                continue
+            }
 			kept = append(kept, d)
 			if id := r11Int(d, "id"); id > 0 { keptIDs[id] = true }
 		}
@@ -871,6 +905,7 @@ func (h *controller) r11ScheduleChange(w http.ResponseWriter, r *http.Request) {
 		emp, _ := r11FindEmployee(employees, r11String(body, "tab_no")); if emp == nil { return nil, "", fmt.Errorf("сотрудник не найден") }
 		date, newSchedule := r11String(body, "effective_date"), r11String(body, "new_schedule")
 		if !r11DateOK(date) || newSchedule == "" { return nil, "", fmt.Errorf("укажите дату и новый вид графика") }
+        if err:=r11PlanDateAllowed(emp,date);err!=nil{return nil,"",err}
 		old := r11String(emp, "schedule_type")
 		if old == newSchedule {
 			revisions, e := r11Array(root, "graph_revisions")
@@ -899,6 +934,7 @@ func (h *controller) r11RevisionCreate(w http.ResponseWriter, r *http.Request) {
 		employees, err := r11Array(root, "employees"); if err != nil { return nil, "", err }
 		emp, _ := r11FindEmployee(employees, r11String(body, "tab_no")); if emp == nil { return nil, "", fmt.Errorf("сотрудник не найден") }
 		effective := r11String(body, "effective_date"); if !r11DateOK(effective) { return nil, "", fmt.Errorf("неверная дата начала редакции") }
+        if err:=r11PlanDateAllowed(emp,effective);err!=nil{return nil,"",err}
 		rows, err := r11Array(root, "graph_revisions"); if err != nil { return nil, "", err }
 		days, err := r11Array(root, "days"); if err != nil { return nil, "", err }
 		events, err := r11Array(root, "events"); if err != nil { return nil, "", err }
@@ -987,6 +1023,13 @@ func (h *controller) r11RevisionActivate(w http.ResponseWriter, r *http.Request)
 			if snap==nil { snap=[]map[string]json.RawMessage{} }
 			snapshot[col.Key]=snap
 		}
+		// Retired employees may have historic rows after their termination date.
+        // Preserve them unchanged when activating an archived revision.
+        employeesForCutoff,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
+        empForCutoff,_:=r11FindEmployeeID(employeesForCutoff,employeeID)
+        if empForCutoff==nil{return nil,"",fmt.Errorf("сотрудник восстановленной редакции не найден")}
+        snapshot["days"],err=r11SafeRestoreDays(empForCutoff,employeeID,current["days"],snapshot["days"])
+        if err!=nil{return nil,"",err}
 		now:=time.Now().Format(time.RFC3339)
 		for _, rev := range revisions {
 			if r11Int(rev,"employee_id")!=employeeID || r11Int(rev,"id")==id { continue }
