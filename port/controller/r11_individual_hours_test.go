@@ -66,3 +66,35 @@ func TestR11IndividualHoursKeepOnPartialCardUpdate(t *testing.T) {
         t.Fatalf("partial update lost hour settings: %+v",rows[0])
     }
 }
+
+func TestR11CycleMoveBackToOriginalClearsActiveAdjustment(t *testing.T) {
+    h:=newR11TestController(t)
+    cid:=r11MakeCycleForTest(t,h,"Сургут","2026-01-07","2026-01-29","Сург-Тал-Сург 7",true,false)
+    var target int64
+    for _,flight:=range r11CycleRowsForTest(t,h,"flight_dates") {
+        if r11Int(flight,"cycle_id")==cid && r11String(flight,"date")=="2026-01-29" {
+            target=r11Int(flight,"id")
+        }
+    }
+    if target==0 {t.Fatal("cycle anchor not found")}
+    for _,date:=range []string{"2026-01-25","2026-01-29"} {
+        body:=fmt.Sprintf(`{"id":%d,"date":%q,"reason":"Учебный перенос и возврат"}`,target,date)
+        r:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/flight/move",body)
+        if r.Code!=http.StatusOK {t.Fatalf("move to %s: %d %s",date,r.Code,r.Body.String())}
+    }
+    flights:=r11CycleRowsForTest(t,h,"flight_dates")
+    if len(flights)!=14 {t.Fatalf("flight count changed: %d",len(flights))}
+    found:=false
+    for _,flight:=range flights {
+        if r11Int(flight,"id")==target {
+            found=true
+            if r11String(flight,"date")!="2026-01-29" || r11String(flight,"adjusted_from")!="" {
+                t.Fatalf("restored flight still appears as moved: %+v",flight)
+            }
+        }
+    }
+    if !found {t.Fatal("flight id lost during moves")}
+    // No active adjustment flag remains to block an idempotent re-save.
+    same:=r11MakeCycleForTest(t,h,"Сургут","2026-01-07","2026-01-29","Сург-Тал-Сург 7",true,false)
+    if same!=cid {t.Fatalf("cycle id changed after return: %d -> %d",cid,same)}
+}
