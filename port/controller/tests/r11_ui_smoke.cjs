@@ -48,7 +48,7 @@ function execute(config, state) {
       elements.set(id,{
         innerHTML: '', textContent:'', value:'', checked:false, disabled:false,
         style:{}, dataset:{}, files:[],
-        setAttribute() {}, getAttribute() {return null},
+        focus() {}, setAttribute() {}, getAttribute() {return null},
         querySelector() {return null}, querySelectorAll(){return []}
       });
     }
