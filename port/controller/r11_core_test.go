@@ -260,3 +260,85 @@ func TestR11TerminationStopsPlanWritesButKeepsPastDays(t *testing.T) {
     allowed:=callR11Core(h,http.MethodPost,"/api/day/quick-save",`{"TabNo":"9002","Date":"2026-11-20","Plan":"1/8","PlanHours":8}`)
     if allowed.Code!=http.StatusOK{t.Fatalf("ordinary employee incorrectly blocked: %s",allowed.Body.String())}
 }
+
+func readSchedulePairRows(t *testing.T, h *controller) []map[string]json.RawMessage {
+	t.Helper()
+	data := readR11CoreState(t, h)
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(data["schedule_types"], &rows); err != nil { t.Fatal(err) }
+	return rows
+}
+
+func TestR11SchedulePairAtomicCreateAndIdempotentConflict(t *testing.T) {
+	h := newR11TestController(t)
+	rec := callR11Core(h, http.MethodPost, "/api/autograf/schedule-type/pair",
+		`{"collection_point":"Тюмень","name":"Тюм-Тал-Тюм 9","phase":"A"}`)
+	if rec.Code != http.StatusOK { t.Fatalf("create pair status=%d: %s", rec.Code, rec.Body.String()) }
+	rows := readSchedulePairRows(t, h)
+	if len(rows) != 2 { t.Fatalf("expected atomic creation of two rows, got %d", len(rows)) }
+	if r11String(rows[0], "name") != "Тюм-Тал-Тюм 9" ||
+		r11String(rows[0], "pair_name") != "Тюм-Тал-Тюм 9." ||
+		r11String(rows[0], "phase") != "A" ||
+		!r11Bool(rows[0], "active") {
+		t.Fatalf("first row invalid: %+v", rows[0])
+	}
+	if r11String(rows[1], "name") != "Тюм-Тал-Тюм 9." ||
+		r11String(rows[1], "pair_name") != "Тюм-Тал-Тюм 9" ||
+		r11String(rows[1], "phase") != "B" ||
+		!r11Bool(rows[1], "active") {
+		t.Fatalf("second row invalid: %+v", rows[1])
+	}
+	again := callR11Core(h, http.MethodPost, "/api/autograf/schedule-type/pair",
+		`{"collection_point":"Тюмень","name":"Тюм-Тал-Тюм 9","phase":"A"}`)
+	if again.Code != http.StatusBadRequest { t.Fatalf("repeat must refuse duplicate, status %d", again.Code) }
+	if got := len(readSchedulePairRows(t, h)); got != 2 { t.Fatalf("duplicate changed rows to %d", got) }
+	// Another pair can choose a free first phase, and the dotted name is always opposite.
+	other := callR11Core(h, http.MethodPost, "/api/autograf/schedule-type/pair",
+		`{"collection_point":"Тюмень","name":"Тюм-Тал-Тюм 10","phase":"B"}`)
+	if other.Code != http.StatusOK { t.Fatalf("create reverse phase: %d %s", other.Code, other.Body.String()) }
+	rows = readSchedulePairRows(t, h)
+	if len(rows) != 4 || r11String(rows[2], "phase") != "B" || r11String(rows[3], "phase") != "A" {
+		t.Fatalf("opposite phase not saved: %+v", rows)
+	}
+}
+
+func TestR11SchedulePairCompleteExistingHalfAndRejectConflict(t *testing.T) {
+	h := newR11TestController(t)
+	first := callR11Core(h, http.MethodPost, "/api/autograf/schedule-type/save",
+		`{"collection_point":"Тюмень","name":"Тюм-Тал-Тюм 9","pair_name":"Тюм-Тал-Тюм 9.","phase":"A","active":true,"note":"Учебная проверка"}`)
+	if first.Code != http.StatusOK { t.Fatalf("setup: %d %s", first.Code, first.Body.String()) }
+	rows := readSchedulePairRows(t,h)
+	id := r11Int(rows[0],"id")
+	complete := callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/pair",
+		fmt.Sprintf(`{"id":%d}`,id))
+	if complete.Code != http.StatusOK { t.Fatalf("complete pair: %d %s",complete.Code,complete.Body.String()) }
+	rows=readSchedulePairRows(t,h)
+	if len(rows)!=2 || r11Int(rows[0],"id")!=id { t.Fatalf("original row overwritten/duplicate: %+v",rows) }
+	if r11String(rows[1],"name")!="Тюм-Тал-Тюм 9." || r11String(rows[1],"pair_name")!="Тюм-Тал-Тюм 9" ||
+		r11String(rows[1],"phase")!="B" || r11String(rows[1],"note")!="Учебная проверка" {
+		t.Fatalf("completed partner invalid: %+v",rows[1])
+	}
+	again:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/pair",fmt.Sprintf(`{"id":%d}`,id))
+	if again.Code!=http.StatusBadRequest || len(readSchedulePairRows(t,h))!=2 {
+		t.Fatalf("repeat must be rejected without duplicates: %d",again.Code)
+	}
+}
+
+func TestR11SchedulePairRejectConflictingExistingPartnerWithoutWrites(t *testing.T) {
+	h:=newR11TestController(t)
+	for _,body:=range []string{
+		`{"collection_point":"Тюмень","name":"Тюм-Тал-Тюм 9","pair_name":"Тюм-Тал-Тюм 9.","phase":"A","active":true}`,
+		`{"collection_point":"Тюмень","name":"Тюм-Тал-Тюм 9.","pair_name":"Тюм-Тал-Тюм 9","phase":"A","active":true}`,
+	} {
+		rec:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/save",body)
+		if rec.Code!=http.StatusOK { t.Fatalf("setup save: %d %s",rec.Code,rec.Body.String()) }
+	}
+	rows:=readSchedulePairRows(t,h)
+	rec:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/pair",
+		fmt.Sprintf(`{"id":%d}`,r11Int(rows[0],"id")))
+	if rec.Code!=http.StatusBadRequest { t.Fatalf("conflict should fail: %d %s",rec.Code,rec.Body.String()) }
+	after:=readSchedulePairRows(t,h)
+	if len(after)!=2 || r11String(after[1],"phase")!="A" || r11String(after[1],"pair_name")!="Тюм-Тал-Тюм 9" {
+		t.Fatalf("server rewrote conflicting partner: %+v",after)
+	}
+}
