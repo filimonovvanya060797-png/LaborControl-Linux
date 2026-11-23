@@ -1031,7 +1031,7 @@ async function flightWizardSaveAndCalc(btn){let p=employeeFlightImport;if(!p)ret
    Keep their original id, ISO value, onchange handler, min/max and API contracts intact. */
 (function () {
   'use strict';
-  const nativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  const nativeValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document.createElement('input')), 'value');
   function parseDate(raw) {
     const s = String(raw == null ? '' : raw).trim();
     if (!s) return '';
