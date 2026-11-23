@@ -48,7 +48,7 @@ function execute(config, state) {
       elements.set(id,{
         innerHTML: '', textContent:'', value:'', checked:false, disabled:false,
         style:{}, dataset:{}, files:[],
-        focus() {}, click() {}, setSelectionRange(start,end) {this.selectionStart=start;this.selectionEnd=end}, setAttribute() {}, getAttribute() {return null},
+        focus() {}, click() {}, remove() {}, setSelectionRange(start,end) {this.selectionStart=start;this.selectionEnd=end}, setAttribute() {}, getAttribute() {return null},
         querySelector() {return null}, querySelectorAll(){return []}
       });
     }
@@ -100,6 +100,42 @@ function execute(config, state) {
       assert.equal(vm.runInContext('flightCyclePreview',ctx),null,
         'reversed anchor dates must not create a flight preview');
       assert.equal(state.data.flight_dates.length,0,'preview must not save any flight');
+    }
+    if (step.verifyAutografUX) {
+      const el=getElement;
+      el('fcpoint').value='Тюмень';el('fcfirst').value='2026-01-09';
+      el('fcsecond').value='2026-01-30';el('fcyear').value='2026';
+      vm.runInContext('calcFlightCycle()',ctx);
+      const first=vm.runInContext('flightCyclePreview',ctx);
+      assert.equal(first.gap,21,'actual training flight anchors must have 21-day gap');
+      assert.equal(first.items.length,13,'2026 cycle must preview 13 flights');
+      let ui=el('page').innerHTML;
+      assert.ok(ui.includes('Отменить расчёт'),'flight preview must expose cancellation');
+      assert.ok(ui.includes('id="fcfirst" type="date" value="2026-01-09"'),'preview must preserve first anchor');
+      assert.ok(ui.includes('id="fcsecond" type="date" value="2026-01-30"'),'preview must preserve second anchor');
+      assert.equal(state.data.flight_dates.length,0,'preview must never write flights');
+      vm.runInContext('cancelFlightCyclePreview()',ctx);
+      assert.equal(vm.runInContext('flightCyclePreview',ctx),null,'cancel must discard preview');
+      vm.runInContext('render()',ctx);
+      assert.ok(el('page').innerHTML.includes('id="fcfirst" type="date" value="2026-01-09"'),
+        'cancel must retain editable input, not wipe it');
+      vm.runInContext('calcFlightCycle()',ctx);
+      el('fcsecond').value='2026-02-01';
+      vm.runInContext('flightCycleInputsChanged()',ctx);
+      assert.equal(vm.runInContext('flightCyclePreview',ctx),null,'editing a date invalidates stale preview');
+      assert.equal(state.data.flight_dates.length,0,'edited preview must not save');
+      vm.runInContext("vacationPreview={start:'2026-02-02',end:'2026-02-15',days:14,holidays:0,reduction:72,absence_days:14};vacationDraftNote='тестовое примечание'",ctx);
+      const vacHtml=vm.runInContext('vacationPanel(agEmployee())',ctx);
+      assert.ok(vacHtml.includes('Отменить расчёт'),'vacation preview requires explicit cancellation');
+      assert.ok(vacHtml.includes('тестовое примечание'),'vacation preview must preserve a draft comment');
+      vm.runInContext('cancelVacationPreview()',ctx);
+      assert.equal(vm.runInContext('vacationPreview',ctx),null,'cancel vacation must discard preview');
+      vm.runInContext("constructorPreview={warnings:[],phases:[],monthly:[],type:'Тест',days:{}}",ctx);
+      const constructorHtml=vm.runInContext('constructorPreviewHtml()',ctx);
+      assert.ok(constructorHtml.includes('Отменить расчёт'),'constructor must offer cancel');
+      vm.runInContext('cancelConstructorPreview()',ctx);
+      assert.equal(vm.runInContext('constructorPreview',ctx),null,'cancel constructor must discard preview');
+      assert.equal(state.data.flight_dates.length,0,'cancellation must leave flights untouched');
     }
     if (step.checkCsv) {
       const parsed=vm.runInContext('parseCsvText('+JSON.stringify(step.checkCsv.text)+')',ctx);
@@ -268,6 +304,11 @@ execute([{
   }
 }],newLocation);
 
+execute([{
+  module:'autograf',section:'flights',
+  label:'Autograf UX: flight-cycle preview/cancel/retain, vacation and constructor cancel',
+  verifyAutografUX:true,
+}],fixture(true));
 const unsafeName=fixture(true);
 unsafeName.data.employees[0].full_name="О'Брайен \"Иван\" <Проверка>";
 execute([{module:'employees',label:'employee edit button is safe for quotes and HTML',
