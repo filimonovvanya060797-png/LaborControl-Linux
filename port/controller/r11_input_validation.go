@@ -55,12 +55,24 @@ func r11StrictHoursField(body map[string]json.RawMessage, key string, maximum fl
 func r11StrictEmployeePayload(body map[string]json.RawMessage) error {
     for _, key := range []string{
         "tab_no", "full_name", "position", "unit", "collection_point",
-        "schedule_type", "hire_date", "fire_date", "probation_end", "notes",
+        "schedule_type", "hire_date", "fire_date", "probation_end", "notes", "norm_basis",
     } {
         if err := r11StrictStringField(body, key); err != nil { return err }
     }
     for _, key := range []string{"is_quarter", "probation", "main_schedule_ready"} {
         if err := r11StrictBooleanField(body, key); err != nil { return err }
+    }
+    // В версии 1 индивидуальные нормы поддерживают 40 и 36 часов в неделю,
+    // типовая смена — 11 или 10 часов. Не принимать неявные дробные значения.
+    for _, spec := range []struct {key string; first, second int}{
+        {"weekly_hours", 36, 40}, {"shift_hours", 10, 11},
+    } {
+        raw := r11Raw(body, spec.key)
+        if len(raw) == 0 { continue } // прежние карточки остаются совместимыми
+        var n int
+        if err := json.Unmarshal(raw, &n); err != nil || (n != spec.first && n != spec.second) {
+            return fmt.Errorf("поле %s: разрешены только %d или %d часов", spec.key, spec.first, spec.second)
+        }
     }
     for _, key := range []string{"hire_date", "fire_date", "probation_end"} {
         if value := r11String(body, key); value != "" && !r11DateOK(value) {
