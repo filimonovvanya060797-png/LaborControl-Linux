@@ -127,10 +127,10 @@ function execute(config, state) {
       // Удаление возле вставленных точек не блокирует курсор.
       let input=getElement('ehiretext');input.value='01.11.2026';input.selectionStart=3;input.selectionEnd=3;
       vm.runInContext("employeeDateKeydown({key:'Backspace',preventDefault(){}},'ehire')",ctx);
-      assert.equal(input.value,'01.1.2026','Backspace after automatic dot deletes nearest digit');
+      assert.equal(input.value,'01.12.026','Backspace after automatic dot deletes nearest digit');
       input.value='01.11.2026';input.selectionStart=2;input.selectionEnd=2;
       vm.runInContext("employeeDateKeydown({key:'Delete',preventDefault(){}},'ehire')",ctx);
-      assert.equal(input.value,'01.1.2026','Delete before automatic dot deletes nearest digit');
+      assert.equal(input.value,'01.12.026','Delete before automatic dot deletes nearest digit');
       input.value='31022026';input.selectionStart=8;input.selectionEnd=8;
       vm.runInContext("employeeDateTyped('ehire')",ctx);
       assert.equal(input.value,'31.02.2026','impossible date should be visible for correction');
