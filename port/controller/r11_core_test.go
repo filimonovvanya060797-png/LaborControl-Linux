@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"mime/multipart"
 	"os"
+    "strconv"
 	"strings"
 	"testing"
 )
@@ -217,4 +218,45 @@ func TestR11FullUIIncludesOriginalModulesAndLocalImport(t *testing.T) {
 		if !strings.Contains(page,want){t.Fatalf("full UI is missing %q",want)}
 	}
 	if strings.Contains(page,"R11-LINUX-STATE-COMPAT/0.1"){t.Fatal("state-only compatibility UI is still being served")}
+}
+
+func TestR11TerminationStopsPlanWritesButKeepsPastDays(t *testing.T) {
+    h := newR11TestController(t)
+    create := callR11Core(h,http.MethodPost,"/api/employee/save",`{"tab_no":"9001","full_name":"Тестов Иван Сергеевич","hire_date":"2026-11-01","probation":true,"probation_end":"2026-11-20","fire_date":""}`)
+    if create.Code!=http.StatusOK { t.Fatalf("create employee: %d %s",create.Code,create.Body.String()) }
+    for _,date := range []string{"2026-11-18","2026-11-19"} {
+        rec := callR11Core(h,http.MethodPost,"/api/day/quick-save",`{"TabNo":"9001","Date":"`+date+`","Plan":"1/8","PlanHours":8,"State":"WORK"}`)
+        if rec.Code!=http.StatusOK { t.Fatalf("setup date %s: %d %s",date,rec.Code,rec.Body.String()) }
+    }
+    var emps []map[string]json.RawMessage
+    snapshot := readR11CoreState(t,h)
+    if err := json.Unmarshal(snapshot["employees"],&emps); err!=nil || len(emps)!=1 { t.Fatalf("setup employees: %v",err) }
+    termination := `{"id":`+strconv.FormatInt(r11Int(emps[0],"id"),10)+`,"tab_no":"9001","full_name":"Тестов Иван Сергеевич","hire_date":"2026-11-01","probation":true,"probation_end":"2026-11-20","fire_date":"2026-11-18"}`
+    update := callR11Core(h,http.MethodPost,"/api/employee/save",termination)
+    if update.Code!=http.StatusOK { t.Fatalf("set termination: %d %s",update.Code,update.Body.String()) }
+    for _,tc := range []struct{name,path,body string; want int}{
+        {"last day quick save","/api/day/quick-save",`{"TabNo":"9001","Date":"2026-11-18","Plan":"1/10","PlanHours":10}`,200},
+        {"after termination quick save","/api/day/quick-save",`{"TabNo":"9001","Date":"2026-11-19","Plan":"1/11","PlanHours":11}`,400},
+        {"after termination full day save","/api/day/save",`{"TabNo":"9001","Date":"2026-11-20","Plan":"1/8","PlanHours":8}`,400},
+        {"no deletion of previous history","/api/day/delete",`{"tab_no":"9001","date":"2026-11-19"}`,400},
+    } {
+        t.Run(tc.name,func(t *testing.T) {
+            rec := callR11Core(h,http.MethodPost,tc.path,tc.body)
+            if rec.Code!=tc.want { t.Fatalf("status=%d want=%d body=%s",rec.Code,tc.want,rec.Body.String()) }
+            if tc.want==400&&!strings.Contains(rec.Body.String(),"после увольнения") { t.Fatalf("missing explanation: %s",rec.Body.String()) }
+        })
+    }
+    state := readR11CoreState(t,h)
+    var days []map[string]json.RawMessage
+    if err:=json.Unmarshal(state["days"],&days);err!=nil{t.Fatal(err)}
+    if len(days)!=2 { t.Fatalf("previous days lost, got %d",len(days)) }
+    for _,day:=range days {
+        if r11String(day,"date")=="2026-11-19"&&r11Float(day,"plan_hours")!=8 {
+            t.Fatalf("historical day silently modified: %+v",day)
+        }
+    }
+    ordinary:=callR11Core(h,http.MethodPost,"/api/employee/save",`{"tab_no":"9002","full_name":"Действующий водитель","hire_date":"2026-11-01"}`)
+    if ordinary.Code!=http.StatusOK{t.Fatalf("ordinary employee: %s",ordinary.Body.String())}
+    allowed:=callR11Core(h,http.MethodPost,"/api/day/quick-save",`{"TabNo":"9002","Date":"2026-11-20","Plan":"1/8","PlanHours":8}`)
+    if allowed.Code!=http.StatusOK{t.Fatalf("ordinary employee incorrectly blocked: %s",allowed.Body.String())}
 }
