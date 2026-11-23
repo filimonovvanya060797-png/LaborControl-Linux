@@ -42,6 +42,30 @@ SCRIPT = r"""
       r11DateFields.parseDate('29.02.2028') !== '2028-02-29')
     throw Error('Strict date validation failed');
   go('employees');
+  if (!document.getElementById('eweekly') || !document.getElementById('eshift') ||
+      !document.getElementById('enormbasis'))
+    throw Error('Employee weekly norm, shift or legal basis field missing');
+  if (employeeWeekHours({})!==40 || employeeShiftHours({})!==11 ||
+      employeeWeekHours({weekly_hours:36})!==36 || employeeShiftHours({shift_hours:10})!==10)
+    throw Error('Old employee fallback and new employee hours are incorrect');
+  if (employeeCalendarNorm({weekly_hours:36},{norm_hours:8})!==7.2 ||
+      employeeCalendarNorm({weekly_hours:36},{norm_hours:7})!==6.2 ||
+      employeeCalendarNorm({weekly_hours:36},{norm_hours:0})!==0)
+    throw Error('36-hour working week must respect shortened working days');
+  // Optional normative hours in XLSX/CSV must be parsed and rejected before import.
+  const savedImport = empImport, savedImportMap = empImportMap;
+  const hHours=['Табельный номер','ФИО','Норма недели','Часов смены','Основание нормы'];
+  empImport={name:'test.csv',head:hHours,rows:[['SMOKE-WEEK-36','Учебная','36','10','ст. 320 ТК РФ']]};
+  empImportMap=autoEmpMap(hHours);
+  let workImport=importClassify()[0];
+  if (workImport.status!=='new' || workImport.o.weekly_hours!==36 ||
+      workImport.o.shift_hours!==10 || workImport.o.norm_basis!=='ст. 320 ТК РФ')
+    throw Error('36/10 work regimes were not parsed from import');
+  empImport.rows[0][2]='37';
+  if (importClassify()[0].status!=='error')
+    throw Error('Invalid normative week must block mass import before saving');
+  empImport=savedImport;empImportMap=savedImportMap;
+  outcome.push({label:'Autograf: 36/40 normative week and 10/11 shift in card and Excel import',ok:true,error:''});
   // A probation-end date is intentionally disabled until probation is enabled.
   document.getElementById('eprob').checked = true;
   refreshMainReadyState();
@@ -176,51 +200,15 @@ SCRIPT = r"""
   setAgSection('types');
   state.data.schedule_types.push({id:919,collection_point:'Тюмень',name:'Учебный',pair_name:'Учебный.',phase:'A',active:true,note:''});
   render();
-  if (!document.querySelector('button[onclick="completeSchedulePair(919)"]'))
-    throw Error('Existing first schedule should have one-click Create partner');
-  if (document.getElementById('stadvanced')?.open)
-    throw Error('Advanced schedule editor should start collapsed');
-  const quickName = document.getElementById('qname');
-  const quickPhase = document.getElementById('qphase');
-  if (!quickName || !quickPhase || !document.getElementById('qpoint'))
-    throw Error('Simple pair creation form is missing');
-  quickName.value = 'Тюм-Тал-Тюм 9';
-  quickPhase.value = 'A';
-  updateQuickPairPreview();
-  const previewText = document.getElementById('qpreview')?.textContent||'';
-  if (!previewText.includes('Тюм-Тал-Тюм 9.') || !previewText.includes('свободная'))
-    throw Error('Simple creation must preview dotted partner and opposite work phase');
-  // The same simple flow must also accept a partner with a completely different number.
-  document.getElementById('qpoint').value='Сургут';
-  quickName.value='Сург-Тал-Сург 7';
-  const mode=document.getElementById('qpairmode');
-  if (!mode) throw Error('Partner choice is missing from simplified create form');
-  mode.value='custom';schedulePairModeChanged();
-  const partnerInput=document.getElementById('qpartner');
-  if (!partnerInput || document.getElementById('qpartnerbox')?.style.display==='none')
-    throw Error('Custom partner field was not revealed');
-  partnerInput.value='Сург-Тал-Сург 16';updateQuickPairPreview();
-  const customPreview=document.getElementById('qpreview')?.textContent||'';
-  if (!customPreview.includes('Сург-Тал-Сург 7') || !customPreview.includes('Сург-Тал-Сург 16') ||
-      !customPreview.includes('свободная'))
-    throw Error('Custom 7/16 partner and opposite phase must be previewed');
-  state.data.schedule_types.push({id:920,collection_point:'Сургут',name:'Сург-Тал-Сург 7',pair_name:'Сург-Тал-Сург 16',phase:'A',active:true,note:''});
-  render();
-  if (!document.querySelector('button[onclick="completeSchedulePair(920)"]') ||
-      !document.querySelector('button[onclick="openSchedulePairPicker(920)"]'))
-    throw Error('Incomplete custom numbered pair should offer both easy actions');
-  openSchedulePairPicker(920);
-  if (document.getElementById('qchosenpartner')?.value!=='Сург-Тал-Сург 16')
-    throw Error('Choose-partner panel should retain stored custom partner name');
-  closeSchedulePairPicker();
-  state.data.schedule_types.push({id:921,collection_point:'Сургут',name:'Сург-Тал-Сург 16',pair_name:'Сург-Тал-Сург 7',phase:'B',active:true,note:''});
-  render();
-  if (schedulePairState(state.data.schedule_types.find(x=>x.id===920))!=='ready' ||
-      schedulePairState(state.data.schedule_types.find(x=>x.id===921))!=='ready')
-    throw Error('Ready status must use actual 7/16 names, not a dotted-name assumption');
-  state.data.schedule_types=state.data.schedule_types.filter(x=>x.id!==920&&x.id!==921);
-  render();
-
+  // One-click creation is deliberately removed from this tab: use the cycle card.
+  if (document.getElementById('qname') || document.getElementById('qpoint') ||
+      document.getElementById('qpairmode'))
+    throw Error('Legacy duplicate create-pair form must be absent (#35)');
+  if (document.getElementById('stadvanced')?.open ||
+      document.getElementById('stsubmit')?.disabled!==true)
+    throw Error('Existing type editor must start collapsed and creation disabled');
+  if (!document.querySelector('button[onclick="editScheduleTypeId(919)"]'))
+    throw Error('Existing schedule must still be editable');
   editScheduleTypeId(919);
   if (!document.getElementById('stadvanced')?.open)
     throw Error('Edit existing record must expand advanced editor');
@@ -229,7 +217,7 @@ SCRIPT = r"""
   clearScheduleType();
   if (document.getElementById('stadvanced')?.open)
     throw Error('Cancel manual edit should collapse advanced editor');
-  if (document.getElementById('stsubmit')?.textContent !== 'Добавить вид графика' ||
+  if (document.getElementById('stsubmit')?.textContent !== 'Выберите существующий вид' ||
       document.getElementById('stid')?.value)
     throw Error('Cancel schedule edit must reset editing state');
   state.data.schedule_types = state.data.schedule_types.filter(x=>x.id!==919);
@@ -264,6 +252,26 @@ SCRIPT = r"""
   if (p16.days['2026-01-16']?.plan!=='ДП' || p16.days['2026-02-13']?.plan!=='ДП' ||
       p16.days['2026-01-07']?.plan==='ДП' || p16.days['2026-01-29']?.plan==='ДП')
     throw Error('Cycle 16 constructor mixed another cycle’s dates');
+  // Employment boundaries must clamp the PREVIEW, preserving flight phases.
+  const woman={...syntheticSurgut,hire_date:'2026-01-10',fire_date:'',probation:false,
+               weekly_hours:36,shift_hours:10};
+  const p10=buildByFlights(woman,'2026-01-01','2026-01-28',10);
+  if (Object.keys(p10.days).some(d=>d<'2026-01-10') ||
+      p10.days['2026-01-10']?.hours!==10 || p10.days['2026-01-10']?.plan!=='10' ||
+      p10.days['2026-01-07'] || p10.phases[0]?.start!=='2026-01-10')
+    throw Error('Constructor must not record days before employment and must preserve 10h phase');
+  const p11=buildByFlights({...woman,hire_date:'2026-01-07',weekly_hours:40,shift_hours:11},
+                           '2026-01-07','2026-01-28',11);
+  if (p11.phases[0]?.plan_hours!==231 || p10.phases[0]?.plan_hours!==190)
+    throw Error('10/11-hour shifts did not yield 190/231 planned hours');
+  const pEnd=buildByFlights({...woman,fire_date:'2026-01-18'},
+                           '2026-01-01','2026-01-28',10);
+  if (Object.keys(pEnd.days).some(d=>d>'2026-01-18'))
+    throw Error('Constructor wrote days after termination');
+  if (Math.abs(employeeNormSum({weekly_hours:36},2026,'2026-11-01','2026-12-31')-301.4)>0.001 ||
+      Math.abs(employeeNormSum({weekly_hours:36},2026,'2026-01-01','2026-12-31')-1774.4)>0.001 ||
+      employeeNormSum({weekly_hours:40},2026,'2026-11-01','2026-12-31')!==335)
+    throw Error('2026 individual calendar norms do not match 36/40-hour reference');
   state.data.schedule_types.push({id:885,collection_point:'Сургут',name:'Вид без цикла',phase:'A',active:true});
   let refusedUnbound = false;
   try { buildByFlights({...syntheticSurgut,schedule_type:'Вид без цикла'},'2026-01-07','2026-02-28'); }

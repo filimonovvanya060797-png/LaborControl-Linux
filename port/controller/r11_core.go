@@ -464,7 +464,7 @@ func r11EmployeeUpsert(root map[string]json.RawMessage, rows []map[string]json.R
     if !created {
         for k,v:=range rows[pos] { item[k]=append(json.RawMessage(nil),v...) }
     }
-    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready"} {
+    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","norm_basis","weekly_hours","shift_hours","is_quarter","probation","main_schedule_ready"} {
         if v:=r11Raw(body,key);len(v)>0 { item[key]=append(json.RawMessage(nil),v...) }
     }
     // Validate the complete record after merging, not only the partial request.
@@ -548,6 +548,11 @@ func (h *controller) r11EmployeeDelete(w http.ResponseWriter, r *http.Request) {
 // The date of termination itself remains writable. Historical records and
 // SAP/ISAT fact imports are not deleted or rewritten by this check.
 func r11PlanDateAllowed(emp map[string]json.RawMessage, date string) error {
+    if hire := r11String(emp, "hire_date"); hire != "" && date < hire {
+        formatted := hire
+        if d, err := time.Parse("2006-01-02", hire); err == nil { formatted = d.Format("02.01.2006") }
+        return fmt.Errorf("до приёма на работу нельзя записывать план: первый день %s включительно", formatted)
+    }
     if fire := r11String(emp, "fire_date"); fire != "" && date > fire {
         formatted := fire
         if d, err := time.Parse("2006-01-02", fire); err == nil { formatted = d.Format("02.01.2006") }
@@ -1111,7 +1116,10 @@ func (h *controller) r11CycleFlightMove(w http.ResponseWriter, r *http.Request) 
 			return nil,"",fmt.Errorf("перенос нарушает последовательность рейсов: соседние даты %s и %s",previous,next)
 		}
 		original:=r11String(row,"adjusted_from")
-		if original==""{r11Put(row,"adjusted_from",old)}
+		if original==""{original=old}
+		// A trip restored to its original date is not an active correction.
+		// Keep the two operations in the audit journal, not as a false shift label.
+		if newDate==original {delete(row,"adjusted_from")} else {r11Put(row,"adjusted_from",original)}
 		r11Put(row,"date",newDate)
 		r11Put(row,"adjustment_reason",reason)
 		r11Put(row,"updated_at",time.Now().Format(time.RFC3339))
