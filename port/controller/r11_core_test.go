@@ -455,6 +455,11 @@ func TestR11IndependentSurgutCyclesAtomicSave(t *testing.T) {
 		if q:=r11Int(x,"sequence");q!=1&&q!=2 {t.Fatalf("flight without proper phase: %+v",x)}
 	}
 	if counts[a]!=14 || counts[b]!=13 {t.Fatalf("Surgut flight counts must be 14/13, got %+v",counts)}
+	// A standalone type pair must never be created without a cycle link when two cycles exist.
+	standalone:=callR11Core(h,http.MethodPost,"/api/autograf/schedule-type/pair",
+		"{\"collection_point\":\"Сургут\",\"name\":\"Вид без цикла\",\"phase\":\"A\"}")
+	if standalone.Code!=http.StatusBadRequest {t.Fatalf("unbound type for 2 cycles must be refused: %d",standalone.Code)}
+
 	types:=r11CycleRowsForTest(t,h,"schedule_types")
 	if len(types)!=4 {t.Fatalf("expected four types for two separate pairs, got %d",len(types))}
 	want:=[]struct{title,pair,phase string;id int64}{
@@ -554,6 +559,15 @@ func TestR11CycleFlightCorrectionKeepsOtherFlightsAndPlans(t *testing.T){
 		fmt.Sprintf("{\"id\":%d,\"date\":\"2026-02-26\",\"reason\":\"ошибочный перенос\"}",target))
 	if bad.Code!=http.StatusBadRequest {t.Fatalf("same-cycle conflict not rejected: %d",bad.Code)}
 	if len(r11CycleRowsForTest(t,h,"flight_dates"))!=27 {t.Fatal("rejected operation changed state")}
+	// Rerunning an old cycle calculation must not silently recreate a date
+	// that the operator already moved (Jan 29 → Jan 25).
+	rebuild:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/save",
+		"{\"collection_point\":\"Сургут\",\"first\":\"2026-01-07\",\"second\":\"2026-01-29\",\"year\":2026,\"create_types\":false}")
+	if rebuild.Code!=http.StatusBadRequest {t.Fatalf("mass rebuild after manual date move must need separate scenario: %d %s",rebuild.Code,rebuild.Body.String())}
+	for _,flight:=range r11CycleRowsForTest(t,h,"flight_dates") {
+		if r11Int(flight,"id")==target && r11String(flight,"date")!="2026-01-25" {t.Fatal("rejected mass rebuild changed the corrected date")}
+	}
+
 }
 func TestR11TwoCyclesMayContainSameCalendarDateWithoutOverwrite(t *testing.T) {
 	h:=newR11TestController(t)
