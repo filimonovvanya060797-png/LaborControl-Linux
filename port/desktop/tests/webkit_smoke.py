@@ -171,12 +171,30 @@ SCRIPT = r"""
   if (constructorPreview || document.querySelector('#constructorPreviewBox button[onclick="applyConstructorPreview()"]'))
     throw Error('Cancel constructor must remove its save action');
   setAgSection('types');
-  state.data.schedule_types.push({id:919,collection_point:'Тюмень',name:'Учебный',pair_name:'',phase:'A',active:true,note:''});
+  state.data.schedule_types.push({id:919,collection_point:'Тюмень',name:'Учебный',pair_name:'Учебный.',phase:'A',active:true,note:''});
   render();
+  if (!document.querySelector('button[onclick="completeSchedulePair(919)"]'))
+    throw Error('Existing first schedule should have one-click Create partner');
+  if (document.getElementById('stadvanced')?.open)
+    throw Error('Advanced schedule editor should start collapsed');
+  const quickName = document.getElementById('qname');
+  const quickPhase = document.getElementById('qphase');
+  if (!quickName || !quickPhase || !document.getElementById('qpoint'))
+    throw Error('Simple pair creation form is missing');
+  quickName.value = 'Тюм-Тал-Тюм 9';
+  quickPhase.value = 'A';
+  updateQuickPairPreview();
+  const previewText = document.getElementById('qpreview')?.textContent||'';
+  if (!previewText.includes('Тюм-Тал-Тюм 9.') || !previewText.includes('свободная'))
+    throw Error('Simple creation must preview dotted partner and opposite work phase');
   editScheduleTypeId(919);
+  if (!document.getElementById('stadvanced')?.open)
+    throw Error('Edit existing record must expand advanced editor');
   if (document.getElementById('stsubmit')?.textContent !== 'Сохранить изменения')
     throw Error('Editing a schedule type must show save-edit state');
   clearScheduleType();
+  if (document.getElementById('stadvanced')?.open)
+    throw Error('Cancel manual edit should collapse advanced editor');
   if (document.getElementById('stsubmit')?.textContent !== 'Добавить вид графика' ||
       document.getElementById('stid')?.value)
     throw Error('Cancel schedule edit must reset editing state');
