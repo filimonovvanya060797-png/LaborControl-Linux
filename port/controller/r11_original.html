@@ -671,8 +671,8 @@ function pairNameForType(name){let s=String(name||'').trim();return s.endsWith('
 function schedulePairState(x){
  const partner=x.pair_name||pairNameForType(x.name),opposite=x.phase==='A'?'B':'A';
  const existing=state.data.schedule_types.find(y=>y.collection_point===x.collection_point&&y.name===partner);
- if(!existing)return (!partner||x.pair_name!==partner||!['A','B'].includes(x.phase))?'manual':'missing';
- return existing.pair_name===x.name&&existing.phase===opposite?'ready':'conflict';
+ if(!existing)return ['A','B'].includes(x.phase)?'missing':'manual';
+ return ['A','B'].includes(x.phase)&&existing.pair_name===x.name&&existing.phase===opposite?'ready':'conflict';
 }
 function schedulePairRowAction(x){
  const status=schedulePairState(x);
@@ -693,7 +693,7 @@ function updateQuickPairPreview(){
  let partner=mode==='custom'?val('qpartner').trim():name+'.';
  if(!partner){out.textContent='Введите или выберите название второго графика.';return}
  if(partner===name){out.textContent='Названия парных видов должны отличаться.';return}
- const point=val('qpoint'),found=state.data.schedule_types.find(x=>x.collection_point===point&&x.name===partner);
+ const point=val('qpoint'),found=state.data.schedule_types.find(x=>x.collection_point===point&&x.name===partner);let suggestions=document.getElementById('qavailablepartners');if(suggestions)suggestions.innerHTML=state.data.schedule_types.filter(x=>x.collection_point===point).map(x=>`<option value="${esc(x.name)}"></option>`).join('');
  out.textContent=name+' — первая '+(phase==='B'?'свободная':'рабочая')+'; '+partner+' — первая '+(phase==='B'?'рабочая':'свободная')+'.'+(found?' Второй вид уже существует: перед связью будут проверены его данные.':'');
 }
 async function createQuickSchedulePair(){
@@ -724,8 +724,7 @@ async function saveChosenSchedulePair(){
  if(x.pair_name&&x.pair_name!==partner){
    if(!confirm('Заменить указанного партнёра «'+x.pair_name+'» на «'+partner+'»? Существующий связанный график менять нельзя.'))return;
  }else if(matched&&!confirm('Связать «'+x.name+'» с существующим «'+partner+'»?'))return;
- await post('/api/autograf/schedule-type/pair',{id:x.id,partner_name:partner},'Парная связь сохранена');
- schedulePairPickerId=null;
+ try{await api('/api/autograf/schedule-type/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:x.id,partner_name:partner})});schedulePairPickerId=null;await load();toast('Парная связь сохранена')}catch(e){toast(e.message,true)}
 }
 function editScheduleTypeId(id){let x=state.data.schedule_types.find(q=>q.id===id);if(!x)return;let advanced=document.getElementById('stadvanced');if(advanced)advanced.open=true;document.getElementById('stid').value=x.id;document.getElementById('stpoint').value=x.collection_point||'';document.getElementById('stname').value=x.name||'';document.getElementById('stpair').value=x.pair_name||'';document.getElementById('stphase').value=x.phase||'';document.getElementById('stactive').checked=x.active!==false;document.getElementById('stnote').value=x.note||'';let b=document.getElementById('stsubmit');if(b)b.textContent='Сохранить изменения';window.scrollTo({top:0,behavior:'smooth'})}
 autografScheduleTypes=function(){let rows=state.data.schedule_types.slice().sort((a,b)=>(a.collection_point+' '+a.name).localeCompare(b.collection_point+' '+b.name,'ru')).map(x=>`<tr><td>${esc(x.collection_point)}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.pair_name||'—')}</td><td>${x.phase==='A'?'Первая — рабочая':x.phase==='B'?'Первая — свободная':'—'}</td><td>${x.active===false?'Нет':'Да'}</td><td>${esc(x.note||'')}</td><td>${schedulePairRowAction(x)}<button class="soft" onclick="editScheduleTypeId(${x.id})">Изменить</button> <button class="danger" onclick="deleteScheduleType(${x.id})">Удалить</button></td></tr>`).join('');return `<div class="panel catalog-card">
