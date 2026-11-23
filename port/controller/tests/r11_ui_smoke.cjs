@@ -89,6 +89,7 @@ function execute(config, state) {
       sample.hire_date='2026-11-01';sample.fire_date='2026-11-18';
       sample.probation=true;sample.probation_end='2026-11-20';
       sample.main_schedule_ready=false;
+      state.data.days.push({id:98,employee_id:sample.id,date:'2026-11-18',plan:'1/8',plan_hours:8});
       state.data.days.push({id:99,employee_id:sample.id,date:'2026-11-19',plan:'1/8',plan_hours:8});
       vm.runInContext('state.data='+JSON.stringify(state.data),ctx);
       const period=vm.runInContext('graphPeriod(agEmployee(),2026)',ctx);
