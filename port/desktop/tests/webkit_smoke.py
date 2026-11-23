@@ -52,6 +52,20 @@ SCRIPT = r"""
       employeeCalendarNorm({weekly_hours:36},{norm_hours:7})!==6.2 ||
       employeeCalendarNorm({weekly_hours:36},{norm_hours:0})!==0)
     throw Error('36-hour working week must respect shortened working days');
+  // Optional normative hours in XLSX/CSV must be parsed and rejected before import.
+  const savedImport = empImport, savedImportMap = empImportMap;
+  const hHours=['Табельный номер','ФИО','Норма недели','Часов смены','Основание нормы'];
+  empImport={name:'test.csv',head:hHours,rows:[['SMOKE-WEEK-36','Учебная','36','10','ст. 320 ТК РФ']]};
+  empImportMap=autoEmpMap(hHours);
+  let workImport=importClassify()[0];
+  if (workImport.status!=='new' || workImport.o.weekly_hours!==36 ||
+      workImport.o.shift_hours!==10 || workImport.o.norm_basis!=='ст. 320 ТК РФ')
+    throw Error('36/10 work regimes were not parsed from import');
+  empImport.rows[0][2]='37';
+  if (importClassify()[0].status!=='error')
+    throw Error('Invalid normative week must block mass import before saving');
+  empImport=savedImport;empImportMap=savedImportMap;
+  outcome.push({label:'Autograf: 36/40 normative week and 10/11 shift in card and Excel import',ok:true,error:''});
   // A probation-end date is intentionally disabled until probation is enabled.
   document.getElementById('eprob').checked = true;
   refreshMainReadyState();
