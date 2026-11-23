@@ -51,6 +51,8 @@ func (h *controller) r11CoreAPI(w http.ResponseWriter, r *http.Request) {
 		h.r11CalendarImportConfirm(w, r)
 	case "/api/autograf/schedule-type/save":
 		h.r11ScheduleTypeSave(w, r)
+	case "/api/autograf/schedule-type/pair":
+		h.r11SchedulePairSave(w, r)
 	case "/api/autograf/schedule-type/delete":
 		h.r11ScheduleTypeDelete(w, r)
 	case "/api/autograf/flight/save":
@@ -768,6 +770,94 @@ func (h *controller) r11ScheduleTypeSave(w http.ResponseWriter, r *http.Request)
 		if pos>=0{rows[pos]=item}else{rows=append(rows,item)}
 		r11SetArray(root,"schedule_types",rows)
 		return map[string]any{"id":r11Int(item,"id")},fmt.Sprintf("%s · %s · фаза %s",point,name,phase),nil
+	})
+}
+
+// r11SchedulePairSave creates a mutually linked A/B pair in a single protected mutation.
+// id > 0 completes a previously saved first half; id == 0 creates two new halves.
+func (h *controller) r11SchedulePairSave(w http.ResponseWriter, r *http.Request) {
+	h.r11Mutate(w, r, "Пара видов графиков сохранена", func(root map[string]json.RawMessage) (map[string]any, string, error) {
+		body, err := r11BodyMap(w, r, 2<<20)
+		if err != nil { return nil, "", err }
+		rows, err := r11Array(root, "schedule_types")
+		if err != nil { return nil, "", err }
+		id := r11Int(body, "id")
+		if id < 0 { return nil, "", fmt.Errorf("неверный идентификатор вида графика") }
+
+		point := r11String(body, "collection_point")
+		name := r11String(body, "name")
+		phase := r11String(body, "phase")
+		var existing map[string]json.RawMessage
+		if id > 0 {
+			existing, _ = r11FindRecordID(rows, id)
+			if existing == nil { return nil, "", fmt.Errorf("исходный вид графика не найден") }
+			point, name, phase = r11String(existing, "collection_point"), r11String(existing, "name"), r11String(existing, "phase")
+		}
+		if point == "" || name == "" || len(point) > 120 || len(name) > 150 {
+			return nil, "", fmt.Errorf("укажите корректные пункт сбора и название вида графика")
+		}
+		if phase != "A" && phase != "B" {
+			return nil, "", fmt.Errorf("выберите рабочую или свободную первую последовательность")
+		}
+		partner := name + "."
+		if strings.HasSuffix(name, ".") {
+			partner = strings.TrimSuffix(name, ".")
+		} else if id == 0 {
+			// The simple create form always starts with the unpunctuated name.
+			partner = name + "."
+		}
+		if partner == "" || strings.EqualFold(name, partner) {
+			return nil, "", fmt.Errorf("не удалось определить отдельное имя парного графика")
+		}
+		if id == 0 && strings.HasSuffix(name, ".") {
+			return nil, "", fmt.Errorf("введите название первого вида без точки; точку программа добавит автоматически")
+		}
+		if len(partner) > 150 { return nil, "", fmt.Errorf("название парного графика слишком длинное") }
+		otherPhase := "A"
+		if phase == "A" { otherPhase = "B" }
+
+		// Never overwrite an existing name or silently repair conflicting phases.
+		for _, x := range rows {
+			if r11String(x, "collection_point") != point { continue }
+			if strings.EqualFold(r11String(x, "name"), partner) {
+				return nil, "", fmt.Errorf("парный вид %q уже существует; проверьте его фазу и связь в справочнике", partner)
+			}
+			if id == 0 && strings.EqualFold(r11String(x, "name"), name) {
+				return nil, "", fmt.Errorf("вид %q уже существует; для завершения пары используйте «Создать парный» в его строке", name)
+			}
+		}
+		if id > 0 && r11String(existing, "pair_name") != "" && r11String(existing, "pair_name") != partner {
+			return nil, "", fmt.Errorf("у этого вида уже указан другой парный график; используйте ручную настройку")
+		}
+		if id > 0 && r11String(existing, "pair_name") == "" {
+			r11Put(existing, "pair_name", partner)
+		}
+		active := true
+		note := ""
+		if id > 0 {
+			active = r11Bool(existing, "active")
+			note = r11String(existing, "note")
+		}
+		create := func(title, pairTitle, schedulePhase string) map[string]json.RawMessage {
+			item := map[string]json.RawMessage{}
+			r11Put(item, "id", r11NextID(root))
+			r11Put(item, "collection_point", point)
+			r11Put(item, "name", title)
+			r11Put(item, "pair_name", pairTitle)
+			r11Put(item, "phase", schedulePhase)
+			r11Put(item, "active", active)
+			r11Put(item, "note", note)
+			return item
+		}
+		added := 1
+		if id == 0 {
+			rows = append(rows, create(name, partner, phase))
+			added = 2
+		}
+		rows = append(rows, create(partner, name, otherPhase))
+		r11SetArray(root, "schedule_types", rows)
+		return map[string]any{"added": added, "names": []string{name, partner}},
+			fmt.Sprintf("%s · %s ↔ %s", point, name, partner), nil
 	})
 }
 
