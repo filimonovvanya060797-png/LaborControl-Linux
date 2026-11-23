@@ -42,6 +42,16 @@ SCRIPT = r"""
       r11DateFields.parseDate('29.02.2028') !== '2028-02-29')
     throw Error('Strict date validation failed');
   go('employees');
+  if (!document.getElementById('eweekly') || !document.getElementById('eshift') ||
+      !document.getElementById('enormbasis'))
+    throw Error('Employee weekly norm, shift or legal basis field missing');
+  if (employeeWeekHours({})!==40 || employeeShiftHours({})!==11 ||
+      employeeWeekHours({weekly_hours:36})!==36 || employeeShiftHours({shift_hours:10})!==10)
+    throw Error('Old employee fallback and new employee hours are incorrect');
+  if (employeeCalendarNorm({weekly_hours:36},{norm_hours:8})!==7.2 ||
+      employeeCalendarNorm({weekly_hours:36},{norm_hours:7})!==6.2 ||
+      employeeCalendarNorm({weekly_hours:36},{norm_hours:0})!==0)
+    throw Error('36-hour working week must respect shortened working days');
   // A probation-end date is intentionally disabled until probation is enabled.
   document.getElementById('eprob').checked = true;
   refreshMainReadyState();
@@ -264,6 +274,26 @@ SCRIPT = r"""
   if (p16.days['2026-01-16']?.plan!=='ДП' || p16.days['2026-02-13']?.plan!=='ДП' ||
       p16.days['2026-01-07']?.plan==='ДП' || p16.days['2026-01-29']?.plan==='ДП')
     throw Error('Cycle 16 constructor mixed another cycle’s dates');
+  // Employment boundaries must clamp the PREVIEW, preserving flight phases.
+  const woman={...syntheticSurgut,hire_date:'2026-01-10',fire_date:'',probation:false,
+               weekly_hours:36,shift_hours:10};
+  const p10=buildByFlights(woman,'2026-01-01','2026-01-28',10);
+  if (Object.keys(p10.days).some(d=>d<'2026-01-10') ||
+      p10.days['2026-01-10']?.hours!==10 || p10.days['2026-01-10']?.plan!=='10' ||
+      p10.days['2026-01-07'] || p10.phases[0]?.start!=='2026-01-10')
+    throw Error('Constructor must not record days before employment and must preserve 10h phase');
+  const p11=buildByFlights({...woman,hire_date:'2026-01-07',weekly_hours:40,shift_hours:11},
+                           '2026-01-07','2026-01-28',11);
+  if (p11.phases[0]?.plan_hours!==231 || p10.phases[0]?.plan_hours!==190)
+    throw Error('10/11-hour shifts did not yield 190/231 planned hours');
+  const pEnd=buildByFlights({...woman,fire_date:'2026-01-18'},
+                           '2026-01-01','2026-01-28',10);
+  if (Object.keys(pEnd.days).some(d=>d>'2026-01-18'))
+    throw Error('Constructor wrote days after termination');
+  if (Math.abs(employeeNormSum({weekly_hours:36},2026,'2026-11-01','2026-12-31')-301.4)>0.001 ||
+      Math.abs(employeeNormSum({weekly_hours:36},2026,'2026-01-01','2026-12-31')-1774.4)>0.001 ||
+      employeeNormSum({weekly_hours:40},2026,'2026-11-01','2026-12-31')!==335)
+    throw Error('2026 individual calendar norms do not match 36/40-hour reference');
   state.data.schedule_types.push({id:885,collection_point:'Сургут',name:'Вид без цикла',phase:'A',active:true});
   let refusedUnbound = false;
   try { buildByFlights({...syntheticSurgut,schedule_type:'Вид без цикла'},'2026-01-07','2026-02-28'); }
