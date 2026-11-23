@@ -759,6 +759,13 @@ function updateQuickPairPreview(){
 async function createQuickSchedulePair(){
  const point=val('qpoint').trim(),name=val('qname').trim(),phase=val('qphase'),mode=val('qpairmode');
  if(!point||!name){toast('Укажите пункт сбора и название первого графика',true);return}
+ const pointCycles=(state.data.flight_cycles||[]).filter(x=>x.collection_point===point).length;
+ const legacyGroups=new Set(state.data.flight_dates.filter(x=>x.collection_point===point).map(x=>cycleAnchors(x)?.join('|')).filter(Boolean)).size;
+ if(pointCycles>1||legacyGroups>1){
+  flightPoint=point;agSection='flights';render();
+  toast('Для пункта сбора есть несколько независимых циклов. Создайте пару из карточки нужного цикла.',true);
+  return
+ }
  if(mode!=='custom'&&name.endsWith('.')){toast('В автоматическом режиме название должно быть без точки',true);return}
  const partner=mode==='custom'?val('qpartner').trim():name+'.';
  if(!partner||partner===name){toast('Выберите отличающееся название парного графика',true);return}
@@ -789,7 +796,7 @@ async function saveChosenSchedulePair(){
 function editScheduleTypeId(id){let x=state.data.schedule_types.find(q=>q.id===id);if(!x)return;let advanced=document.getElementById('stadvanced');if(advanced)advanced.open=true;document.getElementById('stid').value=x.id;document.getElementById('stpoint').value=x.collection_point||'';document.getElementById('stname').value=x.name||'';document.getElementById('stpair').value=x.pair_name||'';document.getElementById('stphase').value=x.phase||'';document.getElementById('stactive').checked=x.active!==false;document.getElementById('stnote').value=x.note||'';let b=document.getElementById('stsubmit');if(b)b.textContent='Сохранить изменения';window.scrollTo({top:0,behavior:'smooth'})}
 autografScheduleTypes=function(){let rows=state.data.schedule_types.slice().sort((a,b)=>(a.collection_point+' '+a.name).localeCompare(b.collection_point+' '+b.name,'ru')).map(x=>`<tr><td>${esc(x.collection_point)}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.pair_name||'—')}</td><td>${x.phase==='A'?'Первая — рабочая':x.phase==='B'?'Первая — свободная':'—'}</td><td>${x.active===false?'Нет':'Да'}</td><td>${esc(x.note||'')}</td><td>${schedulePairRowAction(x)}<button class="soft" onclick="editScheduleTypeId(${x.id})">Изменить</button> <button class="danger" onclick="deleteScheduleType(${x.id})">Удалить</button></td></tr>`).join('');return `<div class="panel catalog-card">
 <h2>Создать два парных графика</h2>
-<div class="info-note">Программа создаст оба графика с противоположными вахтами. Парное название можно получить автоматически (с точкой) или выбрать самостоятельно, например 7 и 16. Согласованные рейсы и графики сотрудников не изменяются.</div>
+<div class="info-note">Если у пункта сбора несколько циклов полётов, создавайте виды прямо из карточки конкретного цикла во вкладке «Согласованные полёты». Здесь остаётся простой ввод для одного цикла и нестандартных названий; никакие даты рейсов или планы сотрудников не меняются.</div>
 <div class="grid three">
 <div><label>Пункт сбора</label><select id="qpoint" onchange="updateQuickPairPreview()">${flightFormPointOptions(flightPoint||agEmployee()?.collection_point||'Тюмень')}</select></div>
 <div><label>Название первого графика</label><input id="qname" placeholder="Например: Тюм-Тал-Тюм 9" oninput="updateQuickPairPreview()"></div>
