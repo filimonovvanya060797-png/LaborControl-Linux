@@ -250,6 +250,90 @@ static gboolean on_script_dialog(WebKitWebView *web, WebKitScriptDialog *script_
     return FALSE;
 }
 
+/* Localize WebKitGTK's native context-menu actions without replacing their
+ * behavior with JavaScript. WebKit keeps ownership and enables/disables each
+ * stock action according to the focused input and clipboard state. */
+static const gchar *r11_context_action_label(WebKitContextMenuAction action) {
+    switch (action) {
+        case WEBKIT_CONTEXT_MENU_ACTION_CUT: return "Вырезать";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY: return "Копировать";
+        case WEBKIT_CONTEXT_MENU_ACTION_PASTE: return "Вставить";
+        case WEBKIT_CONTEXT_MENU_ACTION_PASTE_AS_PLAIN_TEXT: return "Вставить без форматирования";
+        case WEBKIT_CONTEXT_MENU_ACTION_DELETE: return "Удалить";
+        case WEBKIT_CONTEXT_MENU_ACTION_SELECT_ALL: return "Выделить всё";
+        case WEBKIT_CONTEXT_MENU_ACTION_INSERT_EMOJI: return "Вставить эмодзи";
+        case WEBKIT_CONTEXT_MENU_ACTION_INPUT_METHODS: return "Способ ввода";
+        case WEBKIT_CONTEXT_MENU_ACTION_UNICODE: return "Вставить управляющий символ Юникод";
+        case WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK: return "Открыть ссылку";
+        case WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK_IN_NEW_WINDOW: return "Открыть ссылку в новом окне";
+        case WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_LINK_TO_DISK: return "Сохранить ссылку";
+        case WEBKIT_CONTEXT_MENU_ACTION_OPEN_IMAGE_IN_NEW_WINDOW: return "Открыть изображение в новом окне";
+        case WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_IMAGE_TO_DISK: return "Сохранить изображение";
+        case WEBKIT_CONTEXT_MENU_ACTION_OPEN_FRAME_IN_NEW_WINDOW: return "Открыть фрейм в новом окне";
+        case WEBKIT_CONTEXT_MENU_ACTION_GO_BACK: return "Назад";
+        case WEBKIT_CONTEXT_MENU_ACTION_GO_FORWARD: return "Вперёд";
+        case WEBKIT_CONTEXT_MENU_ACTION_STOP: return "Остановить";
+        case WEBKIT_CONTEXT_MENU_ACTION_RELOAD: return "Обновить";
+        case WEBKIT_CONTEXT_MENU_ACTION_NO_GUESSES_FOUND: return "Вариантов замены нет";
+        case WEBKIT_CONTEXT_MENU_ACTION_IGNORE_SPELLING: return "Пропустить ошибку";
+        case WEBKIT_CONTEXT_MENU_ACTION_LEARN_SPELLING: return "Добавить слово в словарь";
+        case WEBKIT_CONTEXT_MENU_ACTION_IGNORE_GRAMMAR: return "Пропустить замечание по грамматике";
+        case WEBKIT_CONTEXT_MENU_ACTION_FONT_MENU: return "Шрифт";
+        case WEBKIT_CONTEXT_MENU_ACTION_BOLD: return "Полужирный";
+        case WEBKIT_CONTEXT_MENU_ACTION_ITALIC: return "Курсив";
+        case WEBKIT_CONTEXT_MENU_ACTION_UNDERLINE: return "Подчёркнутый";
+        case WEBKIT_CONTEXT_MENU_ACTION_OUTLINE: return "Контур";
+        case WEBKIT_CONTEXT_MENU_ACTION_INSPECT_ELEMENT: return "Исследовать элемент";
+        case WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW: return "Открыть видео в новом окне";
+        case WEBKIT_CONTEXT_MENU_ACTION_OPEN_AUDIO_IN_NEW_WINDOW: return "Открыть аудио в новом окне";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_VIDEO_LINK_TO_CLIPBOARD: return "Копировать адрес видео";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_AUDIO_LINK_TO_CLIPBOARD: return "Копировать адрес аудио";
+        case WEBKIT_CONTEXT_MENU_ACTION_TOGGLE_MEDIA_CONTROLS: return "Показывать элементы управления";
+        case WEBKIT_CONTEXT_MENU_ACTION_TOGGLE_MEDIA_LOOP: return "Повторять воспроизведение";
+        case WEBKIT_CONTEXT_MENU_ACTION_ENTER_VIDEO_FULLSCREEN: return "Во весь экран";
+        case WEBKIT_CONTEXT_MENU_ACTION_MEDIA_PLAY: return "Воспроизвести";
+        case WEBKIT_CONTEXT_MENU_ACTION_MEDIA_PAUSE: return "Пауза";
+        case WEBKIT_CONTEXT_MENU_ACTION_MEDIA_MUTE: return "Выключить звук";
+        case WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_VIDEO_TO_DISK: return "Сохранить видео";
+        case WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_AUDIO_TO_DISK: return "Сохранить аудио";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_LINK_TO_CLIPBOARD: return "Копировать адрес ссылки";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_IMAGE_TO_CLIPBOARD: return "Копировать изображение";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_IMAGE_URL_TO_CLIPBOARD: return "Копировать адрес изображения";
+        default: return NULL;
+    }
+}
+
+/* Keep the same stock-action IDs, separators and item ordering. Only replace
+ * labels; this preserves clipboard, selection and date-input behavior. */
+static void r11_context_menu_translate(WebKitContextMenu *menu) {
+    const GList *items = webkit_context_menu_get_items(menu);
+    GList *snapshot = g_list_copy((GList *)items);
+    guint index = 0;
+    for (GList *it = snapshot; it != NULL; it = it->next, index++) {
+        WebKitContextMenuItem *item = WEBKIT_CONTEXT_MENU_ITEM(it->data);
+        WebKitContextMenuAction action = webkit_context_menu_item_get_stock_action(item);
+        const gchar *translated = r11_context_action_label(action);
+        if (translated == NULL) continue;
+        WebKitContextMenuItem *new_item =
+            webkit_context_menu_item_new_from_stock_action_with_label(action, translated);
+        webkit_context_menu_remove(menu, item);
+        webkit_context_menu_insert(menu, new_item, index);
+    }
+    g_list_free(snapshot);
+}
+
+static gboolean on_context_menu(WebKitWebView *web, WebKitContextMenu *menu,
+                                 GdkEvent *event, WebKitHitTestResult *hit,
+                                 gpointer user_data) {
+    (void)web;
+    (void)event;
+    (void)hit;
+    (void)user_data;
+    r11_context_menu_translate(menu);
+    /* FALSE: allow WebKit to display the normal, functional menu. */
+    return FALSE;
+}
+
 static gboolean try_open_page(gpointer user_data) {
     (void)user_data;
     if (desktop.closing || desktop.page_opened) return G_SOURCE_REMOVE;
@@ -324,6 +408,7 @@ static void on_activate(GtkApplication *application, gpointer user_data) {
                  "enable-javascript", TRUE, NULL);
     g_signal_connect(desktop.web, "decide-policy", G_CALLBACK(on_decide_navigation), NULL);
     g_signal_connect(desktop.web, "script-dialog", G_CALLBACK(on_script_dialog), NULL);
+    g_signal_connect(desktop.web, "context-menu", G_CALLBACK(on_context_menu), NULL);
     WebKitWebContext *context = webkit_web_view_get_context(desktop.web);
     g_signal_connect(context, "download-started", G_CALLBACK(on_download_started), NULL);
     gtk_container_add(GTK_CONTAINER(desktop.window), GTK_WIDGET(desktop.web));
@@ -371,7 +456,55 @@ static void on_activate(GtkApplication *application, gpointer user_data) {
     g_timeout_add(250, try_open_page, NULL);
 }
 
+/* Synthetic native regression: all translated entries still have the same
+ * WebKit stock actions, in the same order. Requires Xvfb on GitHub Actions. */
+static gboolean r11_context_menu_ru_selftest(void) {
+    const WebKitContextMenuAction actions[] = {
+        WEBKIT_CONTEXT_MENU_ACTION_CUT,
+        WEBKIT_CONTEXT_MENU_ACTION_COPY,
+        WEBKIT_CONTEXT_MENU_ACTION_PASTE,
+        WEBKIT_CONTEXT_MENU_ACTION_DELETE,
+        WEBKIT_CONTEXT_MENU_ACTION_SELECT_ALL,
+        WEBKIT_CONTEXT_MENU_ACTION_INSERT_EMOJI,
+        WEBKIT_CONTEXT_MENU_ACTION_INPUT_METHODS,
+        WEBKIT_CONTEXT_MENU_ACTION_UNICODE
+    };
+    const gchar *expected[] = {
+        "Вырезать", "Копировать", "Вставить", "Удалить",
+        "Выделить всё", "Вставить эмодзи", "Способ ввода",
+        "Вставить управляющий символ Юникод"
+    };
+    WebKitContextMenu *menu = webkit_context_menu_new();
+    const guint count = G_N_ELEMENTS(actions);
+    for (guint i = 0; i < count; i++) {
+        WebKitContextMenuItem *item =
+            webkit_context_menu_item_new_from_stock_action(actions[i]);
+        webkit_context_menu_append(menu, item);
+    }
+    r11_context_menu_translate(menu);
+    const GList *items = webkit_context_menu_get_items(menu);
+    gboolean ok = g_list_length((GList *)items) == count;
+    guint i = 0;
+    for (const GList *item = items; item != NULL; item = item->next, i++) {
+        WebKitContextMenuItem *entry = WEBKIT_CONTEXT_MENU_ITEM(item->data);
+        ok = ok && i < count &&
+            webkit_context_menu_item_get_stock_action(entry) == actions[i] &&
+            g_strcmp0(r11_context_action_label(actions[i]), expected[i]) == 0;
+    }
+    g_object_unref(menu);
+    return ok;
+}
+
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--check-context-ru") == 0) {
+        if (!gtk_init_check(&argc, &argv)) {
+            g_printerr("Не удалось запустить GTK для проверки меню.\n");
+            return 3;
+        }
+        gboolean ok = r11_context_menu_ru_selftest();
+        g_print("Контекстное меню LaborControl: %s\n", ok ? "PASS" : "FAIL");
+        return ok ? 0 : 2;
+    }
     if (argc == 2 && strcmp(argv[1], "--check") == 0) {
         gchar *dir = resolved_install_dir();
         gchar *backend = dir != NULL ? g_build_filename(dir, "laborcontrol-controller", NULL) : NULL;

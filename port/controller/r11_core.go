@@ -464,8 +464,21 @@ func r11EmployeeUpsert(root map[string]json.RawMessage, rows []map[string]json.R
     if !created {
         for k,v:=range rows[pos] { item[k]=append(json.RawMessage(nil),v...) }
     }
-    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready"} {
+    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready","gender","week_hours","shift_hours","norm_reason"} {
         if v:=r11Raw(body,key);len(v)>0 { item[key]=append(json.RawMessage(nil),v...) }
+    }
+    // A new employee with a known gender gets the enterprise's default week.
+    // No gender means no implicit 40-hour assignment. Existing custom weeks are kept.
+    if created && len(r11Raw(item,"week_hours"))==0 {
+        if gender:=r11String(item,"gender");gender=="M" { r11Put(item,"week_hours",40) } else if gender=="F" { r11Put(item,"week_hours",36) }
+    }
+    // Newly imported or manually created employees without a known week
+    // are flagged explicitly; legacy records without this flag keep their
+    // historical read-only fallback until a technician updates the card.
+    if len(r11Raw(item,"week_hours"))>0 || r11String(item,"gender")!="" {
+        r11Put(item,"norm_pending",false)
+    } else if created {
+        r11Put(item,"norm_pending",true)
     }
     // Validate the complete record after merging, not only the partial request.
     if err:=r11StrictEmployeePayload(item);err!=nil { return nil,0,false,err }
@@ -548,6 +561,11 @@ func (h *controller) r11EmployeeDelete(w http.ResponseWriter, r *http.Request) {
 // The date of termination itself remains writable. Historical records and
 // SAP/ISAT fact imports are not deleted or rewritten by this check.
 func r11PlanDateAllowed(emp map[string]json.RawMessage, date string) error {
+    if hire := r11String(emp, "hire_date"); hire != "" && date < hire {
+        formatted := hire
+        if d, err := time.Parse("2006-01-02", hire); err == nil { formatted = d.Format("02.01.2006") }
+        return fmt.Errorf("до приёма нельзя изменять план: первый день %s включительно", formatted)
+    }
     if fire := r11String(emp, "fire_date"); fire != "" && date > fire {
         formatted := fire
         if d, err := time.Parse("2006-01-02", fire); err == nil { formatted = d.Format("02.01.2006") }
@@ -969,7 +987,7 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 		// the original anchors: that would silently undo a real correction.
 		if !adoptOnly {
 			for _,x:=range flights {
-				if r11Int(x,"cycle_id")==cid && r11String(x,"adjusted_from")!="" {
+				if r11Int(x,"cycle_id")==cid && r11String(x,"adjusted_from")!="" && r11String(x,"adjusted_from")!=r11String(x,"date") {
 					return nil,"",fmt.Errorf("у этого цикла уже есть перенесённые рейсы; массовое перестроение требует отдельного подтверждённого сценария")
 				}
 			}
@@ -1111,8 +1129,15 @@ func (h *controller) r11CycleFlightMove(w http.ResponseWriter, r *http.Request) 
 			return nil,"",fmt.Errorf("перенос нарушает последовательность рейсов: соседние даты %s и %s",previous,next)
 		}
 		original:=r11String(row,"adjusted_from")
-		if original==""{r11Put(row,"adjusted_from",old)}
-		r11Put(row,"date",newDate)
+        if original=="" { original=old }
+        // Restoring the original date cancels the active adjustment. The
+        // prior moves remain recorded in the server-side audit journal.
+        if newDate==original {
+            delete(row,"adjusted_from")
+        } else {
+            r11Put(row,"adjusted_from",original)
+        }
+        r11Put(row,"date",newDate)
 		r11Put(row,"adjustment_reason",reason)
 		r11Put(row,"updated_at",time.Now().Format(time.RFC3339))
 		r11SetArray(root,"flight_dates",rows)

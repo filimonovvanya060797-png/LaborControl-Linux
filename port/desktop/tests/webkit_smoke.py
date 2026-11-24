@@ -176,51 +176,17 @@ SCRIPT = r"""
   setAgSection('types');
   state.data.schedule_types.push({id:919,collection_point:'Тюмень',name:'Учебный',pair_name:'Учебный.',phase:'A',active:true,note:''});
   render();
-  if (!document.querySelector('button[onclick="completeSchedulePair(919)"]'))
-    throw Error('Existing first schedule should have one-click Create partner');
+  if (document.getElementById('qname') || document.getElementById('qpoint') ||
+      document.getElementById('qpairmode') || document.getElementById('qpartner'))
+    throw Error('Obsolete unbound quick-pair creation form must be removed');
+  if (!document.getElementById('page')?.textContent.includes('Новые парные виды графиков создаются из конкретного цикла') ||
+      !document.getElementById('page')?.textContent.includes('Цикл полётов'))
+    throw Error('Schedule catalog must explain creation from a specific flight cycle');
+  if (document.querySelector('button[onclick="completeSchedulePair(919)"]') ||
+      document.querySelector('button[onclick="openSchedulePairPicker(919)"]'))
+    throw Error('Unbound schedule catalog must not offer legacy pair creation');
   if (document.getElementById('stadvanced')?.open)
     throw Error('Advanced schedule editor should start collapsed');
-  const quickName = document.getElementById('qname');
-  const quickPhase = document.getElementById('qphase');
-  if (!quickName || !quickPhase || !document.getElementById('qpoint'))
-    throw Error('Simple pair creation form is missing');
-  quickName.value = 'Тюм-Тал-Тюм 9';
-  quickPhase.value = 'A';
-  updateQuickPairPreview();
-  const previewText = document.getElementById('qpreview')?.textContent||'';
-  if (!previewText.includes('Тюм-Тал-Тюм 9.') || !previewText.includes('свободная'))
-    throw Error('Simple creation must preview dotted partner and opposite work phase');
-  // The same simple flow must also accept a partner with a completely different number.
-  document.getElementById('qpoint').value='Сургут';
-  quickName.value='Сург-Тал-Сург 7';
-  const mode=document.getElementById('qpairmode');
-  if (!mode) throw Error('Partner choice is missing from simplified create form');
-  mode.value='custom';schedulePairModeChanged();
-  const partnerInput=document.getElementById('qpartner');
-  if (!partnerInput || document.getElementById('qpartnerbox')?.style.display==='none')
-    throw Error('Custom partner field was not revealed');
-  partnerInput.value='Сург-Тал-Сург 16';updateQuickPairPreview();
-  const customPreview=document.getElementById('qpreview')?.textContent||'';
-  if (!customPreview.includes('Сург-Тал-Сург 7') || !customPreview.includes('Сург-Тал-Сург 16') ||
-      !customPreview.includes('свободная'))
-    throw Error('Custom 7/16 partner and opposite phase must be previewed');
-  state.data.schedule_types.push({id:920,collection_point:'Сургут',name:'Сург-Тал-Сург 7',pair_name:'Сург-Тал-Сург 16',phase:'A',active:true,note:''});
-  render();
-  if (!document.querySelector('button[onclick="completeSchedulePair(920)"]') ||
-      !document.querySelector('button[onclick="openSchedulePairPicker(920)"]'))
-    throw Error('Incomplete custom numbered pair should offer both easy actions');
-  openSchedulePairPicker(920);
-  if (document.getElementById('qchosenpartner')?.value!=='Сург-Тал-Сург 16')
-    throw Error('Choose-partner panel should retain stored custom partner name');
-  closeSchedulePairPicker();
-  state.data.schedule_types.push({id:921,collection_point:'Сургут',name:'Сург-Тал-Сург 16',pair_name:'Сург-Тал-Сург 7',phase:'B',active:true,note:''});
-  render();
-  if (schedulePairState(state.data.schedule_types.find(x=>x.id===920))!=='ready' ||
-      schedulePairState(state.data.schedule_types.find(x=>x.id===921))!=='ready')
-    throw Error('Ready status must use actual 7/16 names, not a dotted-name assumption');
-  state.data.schedule_types=state.data.schedule_types.filter(x=>x.id!==920&&x.id!==921);
-  render();
-
   editScheduleTypeId(919);
   if (!document.getElementById('stadvanced')?.open)
     throw Error('Edit existing record must expand advanced editor');
@@ -228,10 +194,10 @@ SCRIPT = r"""
     throw Error('Editing a schedule type must show save-edit state');
   clearScheduleType();
   if (document.getElementById('stadvanced')?.open)
-    throw Error('Cancel manual edit should collapse advanced editor');
-  if (document.getElementById('stsubmit')?.textContent !== 'Добавить вид графика' ||
+    throw Error('Cancel edit should collapse advanced editor');
+  if (document.getElementById('stsubmit')?.textContent !== 'Сохранить изменения' ||
       document.getElementById('stid')?.value)
-    throw Error('Cancel schedule edit must reset editing state');
+    throw Error('Cancel edit must clear stale ID, not enable unbound creation');
   state.data.schedule_types = state.data.schedule_types.filter(x=>x.id!==919);
   // Two separate independent Surgut cycles: DO NOT group by the city alone.
   const snapFlights = state.data.flight_dates.slice();
@@ -258,6 +224,30 @@ SCRIPT = r"""
   const syntheticSurgut = {...empBase, collection_point:'Сургут', schedule_type:'Сург-Тал-Сург 7'};
   const p7 = buildByFlights(syntheticSurgut,'2026-01-07','2026-02-28');
   const p16 = buildByFlights({...syntheticSurgut,schedule_type:'Сург-Тал-Сург 16'},'2026-01-16','2026-02-28');
+  // Employee's legal weekly norm is independent from a work-shift length.
+  if (Math.abs(employeeNormHour({week_hours:36},{norm_hours:8})-7.2)>0.0001 ||
+      Math.abs(employeeNormHour({week_hours:36},{norm_hours:7})-6.2)>0.0001 ||
+      employeeNormHour({week_hours:40},{norm_hours:7})!==7 ||
+      employeeNormHour({week_hours:36},{norm_hours:0})!==0)
+    throw Error('Individual 36-hour norm or shortened working day failed');
+  const lateHire = {...syntheticSurgut,hire_date:'2026-01-10',fire_date:'',probation:false,week_hours:36,shift_hours:10};
+  const pLate = buildByFlights(lateHire,'2026-01-01','2026-01-28',10);
+  if (Object.keys(pLate.days).some(d=>d<'2026-01-10') ||
+      pLate.days['2026-01-10']?.plan!=='10' ||
+      pLate.days['2026-01-10']?.hours!==10 ||
+      pLate.days['2026-01-07'] ||
+      Object.keys(pLate.days).length!==19 ||
+      pLate.shift_hours!==10 || pLate.week_hours!==36)
+    throw Error('Constructor recorded dates before hire or ignored 10-hour shift');
+  const pExit = buildByFlights({...lateHire,fire_date:'2026-01-18'},'2026-01-01','2026-01-28',10);
+  if (Object.keys(pExit.days).some(d=>d>'2026-01-18') ||
+      Object.keys(pExit.days).length!==9)
+    throw Error('Constructor recorded dates after termination');
+  const maleTen = buildByFlights({...syntheticSurgut,week_hours:40,shift_hours:10,hire_date:''},'2026-01-07','2026-01-28',10);
+  if (maleTen.days['2026-01-08']?.hours!==10 || maleTen.days['2026-01-07']?.plan!=='ДП')
+    throw Error('10-hour work shift did not preserve flight day');
+  outcome.push({label:'Autograf: 36/40 weekly norms, 10/11 shifts, hire and termination bounds',ok:true,error:''});
+
   if (p7.days['2026-01-07']?.plan!=='ДП' || p7.days['2026-01-29']?.plan!=='ДП' ||
       p7.days['2026-01-16']?.plan==='ДП' || p7.days['2026-02-13']?.plan==='ДП')
     throw Error('Cycle 7 constructor mixed another cycle’s dates');

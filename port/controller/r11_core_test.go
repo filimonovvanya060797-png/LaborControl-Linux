@@ -569,6 +569,50 @@ func TestR11CycleFlightCorrectionKeepsOtherFlightsAndPlans(t *testing.T){
 	}
 
 }
+// Returning an individually moved flight to its original date removes only
+// the *active* shift marker. The audit journal retains both corrections.
+func TestR11FlightRestoreClearsActiveMoveWithoutAffectingOtherCycle(t *testing.T) {
+    h:=newR11TestController(t)
+    cid:=r11MakeCycleForTest(t,h,"Сургут","2026-01-07","2026-01-29","Сург-Тал-Сург 7",true,false)
+    other:=r11MakeCycleForTest(t,h,"Сургут","2026-01-16","2026-02-13","Сург-Тал-Сург 16",true,false)
+    before:=r11CycleRowsForTest(t,h,"flight_dates")
+    target:=int64(0)
+    for _,item:=range before {
+        if r11Int(item,"cycle_id")==cid && r11String(item,"date")=="2026-01-29" {target=r11Int(item,"id")}
+    }
+    if target==0 {t.Fatal("missing January 29 flight")}
+    for _,date:=range []string{"2026-01-25","2026-01-29"} {
+        body:=fmt.Sprintf("{\"id\":%d,\"date\":%q,\"reason\":\"Учебный перенос и восстановление\"}",target,date)
+        r:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/flight/move",body)
+        if r.Code!=http.StatusOK {t.Fatalf("move to %s: %d %s",date,r.Code,r.Body.String())}
+    }
+    after:=r11CycleRowsForTest(t,h,"flight_dates")
+    if len(after)!=27 {t.Fatalf("flight count changed: %d",len(after))}
+    for _,item:=range after {
+        if r11Int(item,"id")==target {
+            if r11String(item,"date")!="2026-01-29" || r11String(item,"adjusted_from")!="" {
+                t.Fatalf("restored flight still appears moved: %+v",item)
+            }
+        } else if r11Int(item,"cycle_id")==other {
+            matched:=false
+            for _,original:=range before {
+                if r11Int(original,"id")==r11Int(item,"id") && r11String(original,"date")==r11String(item,"date"){matched=true}
+            }
+            if !matched {t.Fatalf("independent cycle changed: %+v",item)}
+        }
+    }
+    // This was blocked before the fix because adjusted_from remained set.
+    rebuild:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/save",
+       `{"collection_point":"Сургут","first":"2026-01-07","second":"2026-01-29","year":2026,"create_types":false}`)
+    if rebuild.Code!=http.StatusOK {
+        t.Fatalf("fully restored cycle is still blocked: %d %s",rebuild.Code,rebuild.Body.String())
+    }
+    data:=readR11CoreState(t,h)
+    if strings.Count(string(data["journal"]),"Учебный перенос и восстановление")<2 {
+        t.Fatalf("two correction steps missing from journal")
+    }
+}
+
 func TestR11TwoCyclesMayContainSameCalendarDateWithoutOverwrite(t *testing.T) {
 	h:=newR11TestController(t)
 	a:=r11MakeCycleForTest(t,h,"Сургут","2026-01-01","2026-01-29","Сург-Тал-Сург 1",true,false)

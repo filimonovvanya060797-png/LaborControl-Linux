@@ -49,6 +49,8 @@ jobs:
           node --version
           node --check port/controller/tests/r11_ui_smoke.cjs
           node port/controller/tests/r11_ui_smoke.cjs
+          node --check port/controller/tests/r11_gender_calendar_decimal_smoke.cjs
+          node port/controller/tests/r11_gender_calendar_decimal_smoke.cjs
           node --check port/controller/tests/r11_file_picker_smoke.cjs
           node port/controller/tests/r11_file_picker_smoke.cjs
       - name: Run Go regression tests
@@ -59,6 +61,10 @@ jobs:
       - name: Build isolated Linux desktop distribution
         shell: bash
         run: bash port/desktop/build.sh "$RUNNER_TEMP/laborcontrol-r11-desktop"
+      - name: Check Russian native right-click menu and stock actions
+        shell: bash
+        run: |
+          timeout 30s xvfb-run -a "$RUNNER_TEMP/laborcontrol-r11-desktop/laborcontrol-desktop" --check-context-ru
       - name: Run real WebKitGTK screen navigation on synthetic local database
         shell: bash
         env:
