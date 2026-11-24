@@ -71,6 +71,7 @@ type R11Employee struct {
 	WeekHours        float64 `json:"week_hours,omitempty"`
 	ShiftHours       int32   `json:"shift_hours,omitempty"`
 	NormReason       string  `json:"norm_reason,omitempty"`
+	WorkMode         string  `json:"work_mode,omitempty"`
 	ID               int32  `json:"id"`
 	IsQuarter        bool   `json:"is_quarter"`
 	MainScheduleReady bool  `json:"main_schedule_ready"`
