@@ -643,6 +643,7 @@ func (h *controller) r11DaySave(w http.ResponseWriter, r *http.Request) {
 	if v:=r11Raw(body,"Plan"); len(v)>0 { day["plan"]=append(json.RawMessage(nil),v...) }
 	if v:=r11Raw(body,"PlanHours"); len(v)>0 { day["plan_hours"]=append(json.RawMessage(nil),v...) }
 	if v:=r11Raw(body,"State"); len(v)>0 { day["state"]=append(json.RawMessage(nil),v...) }
+	if r11String(body,"ConstructionMode")=="SHIFT" { r11Put(day,"construction_mode","SHIFT") }
 	if v:=r11Raw(body,"Comment"); len(v)>0 { day["comment"]=append(json.RawMessage(nil),v...) }
 	if !quick {
 		for _, pair := range [][2]string{{"Fact","fact"},{"FactHours","fact_hours"},{"Shift","shift"}} {
@@ -1750,6 +1751,16 @@ func r11EmployeeMode(e map[string]json.RawMessage) string {
     return "SHIFT"
 }
 
+// Source belongs to the constructed dates, not the employee record.
+func r11LatestConstructionMode(e map[string]json.RawMessage, days []map[string]json.RawMessage) string {
+    latest, mode := "", "SHIFT"
+    for _, d := range days {
+        if r11Int(d,"employee_id")!=r11Int(e,"id"){continue}
+        m,date:=r11String(d,"construction_mode"),r11String(d,"date")
+        if (m=="SHIFT"||m=="FIVE_DAY")&&date>latest{latest,mode=date,m}
+    }
+    return mode
+}
 func r11FiveDayBaseHours(date time.Time, calendar map[string]map[string]json.RawMessage) (float64,error) {
     key:=date.Format("2006-01-02")
     if date.Year()==2026 {
@@ -1781,7 +1792,7 @@ func (h *controller) r11FiveDaySave(w http.ResponseWriter,r *http.Request) {
         body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err}
         employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
         e,_:=r11FindEmployeeID(employees,r11Int(body,"employee_id"))
-        if e==nil||r11EmployeeMode(e)!="FIVE_DAY" {return nil,"",fmt.Errorf("сотрудник пятидневки не найден")}
+        if e==nil {return nil,"",fmt.Errorf("сотрудник не найден")}
         if string(r11Raw(e,"norm_pending"))=="true" {return nil,"",fmt.Errorf("не назначена недельная норма")}
         week:=r11Float(e,"week_hours")
         if week<=0 {week=40;if r11String(e,"gender")=="F"{week=36}}
@@ -1832,7 +1843,7 @@ func (h *controller) r11FiveDaySave(w http.ResponseWriter,r *http.Request) {
             pos,exists:=byDate[date]
             var d map[string]json.RawMessage
             if exists{d=days[pos]}else{d=map[string]json.RawMessage{};r11Put(d,"id",r11NextID(root));r11Put(d,"employee_id",employeeID);r11Put(d,"date",date)}
-            r11Put(d,"plan",r11String(row,"plan"));r11Put(d,"plan_hours",r11Float(row,"hours"));r11Put(d,"state",r11String(row,"state"));r11Put(d,"updated_at",time.Now().Format(time.RFC3339))
+            r11Put(d,"plan",r11String(row,"plan"));r11Put(d,"plan_hours",r11Float(row,"hours"));r11Put(d,"state",r11String(row,"state"));r11Put(d,"construction_mode","FIVE_DAY");r11Put(d,"updated_at",time.Now().Format(time.RFC3339))
             if exists{days[pos]=d}else{days=append(days,d)}
         }
         r11SetArray(root,"days",days);r11SetArray(root,"graph_versions",versions)
