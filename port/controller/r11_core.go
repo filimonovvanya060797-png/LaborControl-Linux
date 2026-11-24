@@ -1116,8 +1116,15 @@ func (h *controller) r11CycleFlightMove(w http.ResponseWriter, r *http.Request) 
 			return nil,"",fmt.Errorf("перенос нарушает последовательность рейсов: соседние даты %s и %s",previous,next)
 		}
 		original:=r11String(row,"adjusted_from")
-		if original==""{r11Put(row,"adjusted_from",old)}
-		r11Put(row,"date",newDate)
+        if original=="" { original=old }
+        // Restoring the original date cancels the active adjustment. The
+        // prior moves remain recorded in the server-side audit journal.
+        if newDate==original {
+            delete(row,"adjusted_from")
+        } else {
+            r11Put(row,"adjusted_from",original)
+        }
+        r11Put(row,"date",newDate)
 		r11Put(row,"adjustment_reason",reason)
 		r11Put(row,"updated_at",time.Now().Format(time.RFC3339))
 		r11SetArray(root,"flight_dates",rows)
