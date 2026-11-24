@@ -472,6 +472,14 @@ func r11EmployeeUpsert(root map[string]json.RawMessage, rows []map[string]json.R
     if created && len(r11Raw(item,"week_hours"))==0 {
         if gender:=r11String(item,"gender");gender=="M" { r11Put(item,"week_hours",40) } else if gender=="F" { r11Put(item,"week_hours",36) }
     }
+    // Newly imported or manually created employees without a known week
+    // are flagged explicitly; legacy records without this flag keep their
+    // historical read-only fallback until a technician updates the card.
+    if len(r11Raw(item,"week_hours"))>0 || r11String(item,"gender")!="" {
+        r11Put(item,"norm_pending",false)
+    } else if created {
+        r11Put(item,"norm_pending",true)
+    }
     // Validate the complete record after merging, not only the partial request.
     if err:=r11StrictEmployeePayload(item);err!=nil { return nil,0,false,err }
     if created {
