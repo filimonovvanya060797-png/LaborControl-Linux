@@ -56,4 +56,8 @@ assert.ok(run('productionCalendar()').includes('Женщины · 36 ч/нед.'
 run("state.data.employees=[{id:1,tab_no:'T-01',full_name:'Тест',gender:'F',week_hours:36,hire_date:'2026-11-01'}];state.data.days=[{id:2,employee_id:1,date:'2026-11-03',plan:'7.3',plan_hours:7.3,state:'WORK'}]");
 const validation=JSON.parse(run("JSON.stringify(validateGraph(state.data.employees[0],2026))"));
 assert.ok(!validation.issues.some(x=>x.rule==='hours'),'fractional plan must not be flagged invalid');
+assert.equal(run("importExpectedWeek({o:{gender:'F'},e:{gender:'M',week_hours:40}})"),36,'gender re-import should change the default week');
+assert.equal(run("importExpectedWeek({o:{gender:'M'},e:{gender:'F',week_hours:35,norm_reason:'Трудовой договор'}})"),35,'documented custom week must survive gender import');
+assert.equal(run("importExpectedWeek({o:{gender:''},e:{gender:'F',week_hours:36}})"),36,'empty Excel gender must preserve previous week');
+assert.equal(run("importExpectedWeek({o:{gender:''}})"),0,'unknown sex must not assign an implicit 40h norm');
 console.log('Gender / 40-36 calendar / decimal hours embedded R11 UI smoke: PASS');
