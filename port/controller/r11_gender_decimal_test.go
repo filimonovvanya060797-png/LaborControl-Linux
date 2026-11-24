@@ -60,16 +60,16 @@ func TestR11FractionalDayHoursPersist(t *testing.T) {
 func TestR11FiveDayAtomicSaveAndModePreservation(t *testing.T) {
     h:=newR11TestController(t)
     create:=callR11Core(h,http.MethodPost,"/api/employee/batch",
-      `{"employees":[{"tab_no":"FIVE","full_name":"Учебная пятидневка","gender":"F","week_hours":36,"work_mode":"FIVE_DAY","hire_date":"2026-11-02","fire_date":"2026-11-04","notes":"Сохранить"},
+      `{"employees":[{"tab_no":"FIVE","full_name":"Учебная пятидневка","gender":"F","week_hours":36,"hire_date":"2026-11-02","fire_date":"2026-11-04","notes":"Сохранить"},
                     {"tab_no":"OLD","full_name":"Старый вахтовый","gender":"M"}]}`)
     if create.Code!=http.StatusOK {t.Fatal(create.Body.String())}
     rows:=r11EmployeeTestRows(t,h)
     id:=r11Int(rows[0],"id")
-    if r11EmployeeMode(rows[0])!="FIVE_DAY"||r11EmployeeMode(rows[1])!="SHIFT" {t.Fatal("work modes not preserved")}
+    if len(r11Raw(rows[0],"work_mode"))!=0||len(r11Raw(rows[1],"work_mode"))!=0 {t.Fatal("constructor method must not be required in card")}
     update:=callR11Core(h,http.MethodPost,"/api/employee/save",
       fmt.Sprintf(`{"id":%d,"tab_no":"FIVE","full_name":"Учебная пятидневка","position":"Техник"}`,id))
     if update.Code!=http.StatusOK {t.Fatal(update.Body.String())}
-    if row:=r11EmployeeTestRows(t,h)[0];r11EmployeeMode(row)!="FIVE_DAY"||r11Float(row,"week_hours")!=36||r11String(row,"notes")!="Сохранить"{t.Fatal("partial employee update erased data")}
+    if row:=r11EmployeeTestRows(t,h)[0];len(r11Raw(row,"work_mode"))!=0||r11Float(row,"week_hours")!=36||r11String(row,"notes")!="Сохранить"{t.Fatal("partial employee update erased data")}
     old:=callR11Core(h,http.MethodPost,"/api/day/save",`{"TabNo":"FIVE","Date":"2026-11-02","Plan":"8","PlanHours":8,"Fact":"8","FactHours":8,"Comment":"Не стирать"}`)
     if old.Code!=http.StatusOK {t.Fatal(old.Body.String())}
     other:=callR11Core(h,http.MethodPost,"/api/day/save",`{"TabNo":"OLD","Date":"2026-11-02","Plan":"11","PlanHours":11}`)
@@ -90,10 +90,15 @@ func TestR11FiveDayAtomicSaveAndModePreservation(t *testing.T) {
     if err:=json.Unmarshal(data["graph_versions"],&versions);err!=nil{t.Fatal(err)}
     if len(days)!=4||len(versions)!=1{t.Fatalf("days=%d versions=%d",len(days),len(versions))}
     if r11Float(days[0],"plan_hours")!=7.2||r11Float(days[0],"fact_hours")!=8||r11String(days[0],"comment")!="Не стирать"||r11Float(days[1],"plan_hours")!=11{t.Fatal("fact/comment or other employee changed")}
-    badMode:=callR11Core(h,http.MethodPost,"/api/employee/save",fmt.Sprintf(`{"id":%d,"tab_no":"FIVE","full_name":"Учебная пятидневка","work_mode":"SHIFT"}`,id))
-    if badMode.Code!=http.StatusBadRequest{t.Fatal("historical work mode silently changed")}
-    after:=r11EmployeeTestRows(t,h)
-    if r11EmployeeMode(after[0])!="FIVE_DAY"{t.Fatal("mode mutated after refusal")}
+    if r11String(days[0],"construction_mode")!="FIVE_DAY"||r11LatestConstructionMode(rows[0],days)!="FIVE_DAY"{t.Fatal("source not saved on dates")}
+    if len(r11Raw(r11EmployeeTestRows(t,h)[0],"work_mode"))!=0{t.Fatal("calendar construction changed employee card")}
+    shift:=callR11Core(h,http.MethodPost,"/api/day/quick-save",`{"TabNo":"FIVE","Date":"2026-11-04","Plan":"11","PlanHours":11,"State":"WORK","ConstructionMode":"SHIFT"}`)
+    if shift.Code!=http.StatusOK{t.Fatal(shift.Body.String())}
+    after:=readR11CoreState(t,h)
+    if err:=json.Unmarshal(after["days"],&days);err!=nil{t.Fatal(err)}
+    if r11LatestConstructionMode(rows[0],days)!="SHIFT"||r11String(days[0],"construction_mode")!="FIVE_DAY"{t.Fatal("construction source changed outside selected date")}
+    if len(r11Raw(r11EmployeeTestRows(t,h)[0],"work_mode"))!=0{t.Fatal("shift calculation changed card")}
+
 }
 func TestR11FiveDayNorms(t *testing.T) {
     for _,tc:=range []struct{week,normal,short float64}{{40,8,7},{36,7.2,6.2},{35,7,6},{24,4.8,3.8}} {
