@@ -36,6 +36,29 @@ SCRIPT = r"""
   for (const section of ['graph','vacations','constructor','summary','calendar','types','flights','versions']) {
     setAgSection(section);check('autograf / '+section);
   }
+  // Journal #47: the direct card link must select the correct record, not a blank form.
+  const sample={id:987654,tab_no:'R11-47',full_name:'Учебная пятидневка',gender:'F',week_hours:36,work_mode:'FIVE_DAY',norm_pending:true};
+  const savedTab=agTab;
+  state.data.employees.push(sample);
+  agTab=sample.tab_no;
+  setAgSection('graph');
+  const direct=document.querySelector('button[onclick="openGraphEmployeeCard(987654)"]');
+  if(!direct) throw Error('Missing direct employee card link');
+  direct.click();
+  if(document.getElementById('eid')?.value!=='987654'||document.getElementById('ename')?.value!==sample.full_name||document.getElementById('eworkmode')?.value!=='FIVE_DAY')
+    throw Error('Direct employee link opened wrong or blank card');
+  if(!document.getElementById('ecollection')?.disabled||!document.getElementById('eshifthours')?.disabled)
+    throw Error('Five-day card still requires flight fields');
+  sample.norm_pending=false;
+  go('autograf');setAgSection('constructor');
+  if(!document.getElementById('page').textContent.includes('Построить по календарю')||document.getElementById('cshifthours'))
+    throw Error('Five-day constructor did not switch modes');
+  const pFive=buildFiveDay(sample,'2026-11-02','2026-11-04');
+  if(pFive.monthly[0].plan!==13.4||pFive.days['2026-11-03'].hours!==6.2||pFive.days['2026-11-04'].hours!==0)
+    throw Error('Five-day construction failed');
+  state.data.employees=state.data.employees.filter(x=>x.id!==sample.id);
+  agTab=savedTab;go('autograf');
+  outcome.push({label:'Journal #47 direct employee card and five-day WebKit view',ok:true,error:''});
   // Unified date input regression: actual GTK WebKit DOM and native ISO values.
   if (!window.r11DateFields) throw Error('Unified date controls were not loaded');
   if (r11DateFields.parseDate('31.02.2026') !== null ||
