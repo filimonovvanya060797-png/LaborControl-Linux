@@ -745,8 +745,7 @@ function schedulePairState(x){
 function schedulePairRowAction(x){
  const status=schedulePairState(x);
  if(status==='ready')return '<span class="badge good">Пара готова</span> ';
- if(status==='missing')return `<button class="soft" onclick="completeSchedulePair(${Number(x.id)})">Создать парный</button> <button class="soft" onclick="openSchedulePairPicker(${Number(x.id)})">Выбрать другого</button> `;
- return `<button class="soft" onclick="openSchedulePairPicker(${Number(x.id)})">Выбрать другого</button> <span class="muted small">Проверьте парность</span> `;
+ return '<span class="muted small">Нет готовой пары — проверьте цикл</span> <button class="soft" onclick="agSection=\'flights\';render()">Открыть циклы</button>';
 }
 function schedulePairModeChanged(){
  const mode=val('qpairmode'),extra=document.getElementById('qpartnerbox');
