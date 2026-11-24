@@ -61,3 +61,44 @@ assert.equal(run("importExpectedWeek({o:{gender:'M'},e:{gender:'F',week_hours:35
 assert.equal(run("importExpectedWeek({o:{gender:''},e:{gender:'F',week_hours:36}})"),36,'empty Excel gender must preserve previous week');
 assert.equal(run("importExpectedWeek({o:{gender:''}})"),0,'unknown sex must not assign an implicit 40h norm');
 console.log('Gender / 40-36 calendar / decimal hours embedded R11 UI smoke: PASS');
+
+// #47: literal interpolation must not appear on the calendar.
+run('calModeWeek=40;');
+assert.match(run('productionCalendar()'),/отображаемая норма 1972 ч \(40 ч\/нед\.\)/);
+assert.ok(!run('productionCalendar()').includes('${fmt(calModeYearNorm(agYear))}'));
+run('calModeWeek=36;');
+assert.match(run('productionCalendar()'),/отображаемая норма 1774,4 ч \(36 ч\/нед\.\)/);
+assert.equal(run("calModeRangeNorm(2026,'2026-11-02','2026-11-04')"),13.4);
+run('calModeWeek=40;');
+assert.equal(run("calModeRangeNorm(2026,'2026-11-02','2026-11-04')"),15);
+assert.equal(run("employeeNorm({gender:'F',week_hours:36},2026)"),1774.4);
+for(const [week,normal,short,nov] of [[40,8,7,159],[36,7.2,6.2,143],[35,7,6,139],[24,4.8,3.8,95]]) {
+  const p=JSON.parse(run("JSON.stringify(buildFiveDay({id:10,work_mode:'FIVE_DAY',week_hours:"+week+"},'2026-11-01','2026-11-30'))"));
+  assert.equal(Object.keys(p.days).length,30);
+  assert.equal(p.days['2026-11-02'].hours,normal);
+  assert.equal(p.days['2026-11-03'].hours,short);
+  assert.equal(p.days['2026-11-04'].hours,0);
+  assert.equal(p.days['2026-11-07'].plan,'В');
+  assert.equal(p.monthly[0].plan,nov);
+}
+const bounded=JSON.parse(run("JSON.stringify(buildFiveDay({id:10,work_mode:'FIVE_DAY',week_hours:36,hire_date:'2026-11-02',fire_date:'2026-11-04'},'2026-11-01','2026-11-30'))"));
+assert.deepEqual(Object.keys(bounded.days),['2026-11-02','2026-11-03','2026-11-04']);
+assert.equal(bounded.monthly[0].plan,13.4);
+assert.throws(()=>run("buildFiveDay({id:10,norm_pending:true},'2026-11-01','2026-11-30')"));
+assert.throws(()=>run("buildFiveDay({id:10,week_hours:40},'2027-11-01','2027-11-30')"));
+assert.equal(run("employeeWorkMode({})"),'SHIFT');
+assert.equal(run("workModeCode('  ПЯТИДНЕВКА  ')"),'FIVE_DAY');
+assert.equal(run("workModeCode('Вахтовый метод')"),'SHIFT');
+assert.equal(run("workModeCode('6/1')"),'');
+assert.equal(run("autoEmpMap(['Табельный номер','ФИО','Режим работы']).work_mode"),'2');
+run("state.data.employees=[{id:1,tab_no:'T-01',full_name:'Тест',gender:'F',week_hours:35,norm_reason:'Основание',work_mode:'FIVE_DAY'}];state.data.days=[];empImport={head:['Табельный номер','ФИО','Пол','Режим работы'],rows:[['T-01','Тест','М',''],['T-02','Новый','Ж','5/2'],['T-03','Ошибка','М','6/1']]};empImportMap=autoEmpMap(empImport.head)");
+const update=JSON.parse(run('JSON.stringify(importClassify())'));
+assert.equal(update[0].status,'change');
+assert.equal(update[0].o.work_mode,'');
+assert.equal(update[0].e.work_mode,'FIVE_DAY');
+assert.equal(update[1].o.work_mode,'FIVE_DAY');
+assert.equal(update[2].status,'error');
+assert.equal(run("importExpectedWeek(importClassify()[0])"),35);
+run("state.data.days=[{employee_id:1,date:'2026-11-02',plan:'7',plan_hours:7}];empImport.rows=[['T-01','Тест','Ж','Вахта']]");
+assert.equal(run("importClassify()[0].status"),'error');
+console.log('Journal #47: calendar toggle and five-day construction/import smoke: PASS');
