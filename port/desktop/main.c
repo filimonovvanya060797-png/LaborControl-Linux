@@ -424,7 +424,55 @@ static void on_activate(GtkApplication *application, gpointer user_data) {
     g_timeout_add(250, try_open_page, NULL);
 }
 
+/* Synthetic native regression: all translated entries still have the same
+ * WebKit stock actions, in the same order. Requires Xvfb on GitHub Actions. */
+static gboolean r11_context_menu_ru_selftest(void) {
+    const WebKitContextMenuAction actions[] = {
+        WEBKIT_CONTEXT_MENU_ACTION_CUT,
+        WEBKIT_CONTEXT_MENU_ACTION_COPY,
+        WEBKIT_CONTEXT_MENU_ACTION_PASTE,
+        WEBKIT_CONTEXT_MENU_ACTION_DELETE,
+        WEBKIT_CONTEXT_MENU_ACTION_SELECT_ALL,
+        WEBKIT_CONTEXT_MENU_ACTION_INSERT_EMOJI,
+        WEBKIT_CONTEXT_MENU_ACTION_INPUT_METHODS,
+        WEBKIT_CONTEXT_MENU_ACTION_UNICODE
+    };
+    const gchar *expected[] = {
+        "Вырезать", "Копировать", "Вставить", "Удалить",
+        "Выделить всё", "Вставить эмодзи", "Способ ввода",
+        "Вставить управляющий символ Юникод"
+    };
+    WebKitContextMenu *menu = webkit_context_menu_new();
+    const guint count = G_N_ELEMENTS(actions);
+    for (guint i = 0; i < count; i++) {
+        WebKitContextMenuItem *item =
+            webkit_context_menu_item_new_from_stock_action(actions[i]);
+        webkit_context_menu_append(menu, item);
+    }
+    r11_context_menu_translate(menu);
+    const GList *items = webkit_context_menu_get_items(menu);
+    gboolean ok = g_list_length((GList *)items) == count;
+    guint i = 0;
+    for (const GList *item = items; item != NULL; item = item->next, i++) {
+        WebKitContextMenuItem *entry = WEBKIT_CONTEXT_MENU_ITEM(item->data);
+        ok = ok && i < count &&
+            webkit_context_menu_item_get_stock_action(entry) == actions[i] &&
+            g_strcmp0(r11_context_action_label(actions[i]), expected[i]) == 0;
+    }
+    g_object_unref(menu);
+    return ok;
+}
+
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--check-context-ru") == 0) {
+        if (!gtk_init_check(&argc, &argv)) {
+            g_printerr("Не удалось запустить GTK для проверки меню.\n");
+            return 3;
+        }
+        gboolean ok = r11_context_menu_ru_selftest();
+        g_print("Контекстное меню LaborControl: %s\n", ok ? "PASS" : "FAIL");
+        return ok ? 0 : 2;
+    }
     if (argc == 2 && strcmp(argv[1], "--check") == 0) {
         gchar *dir = resolved_install_dir();
         gchar *backend = dir != NULL ? g_build_filename(dir, "laborcontrol-controller", NULL) : NULL;
