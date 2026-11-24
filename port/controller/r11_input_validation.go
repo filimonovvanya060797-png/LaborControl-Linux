@@ -112,6 +112,10 @@ func r11StrictEmployeePayload(body map[string]json.RawMessage) error {
 }
 
 func r11StrictDayPayload(body map[string]json.RawMessage) error {
+    if raw:=r11Raw(body,"ConstructionMode");len(raw)>0 {
+        var mode string
+        if err:=json.Unmarshal(raw,&mode);err!=nil||mode!="SHIFT" {return fmt.Errorf("недопустимый способ построения графика")}
+    }
     for _, key := range []string{
         "Plan", "Fact", "Shift", "State", "Comment", "ChangeReason",
     } {
