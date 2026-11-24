@@ -55,12 +55,16 @@ func r11StrictHoursField(body map[string]json.RawMessage, key string, maximum fl
 func r11StrictEmployeePayload(body map[string]json.RawMessage) error {
     for _, key := range []string{
         "tab_no", "full_name", "position", "unit", "collection_point",
-        "schedule_type", "hire_date", "fire_date", "probation_end", "notes", "norm_reason",
+        "schedule_type", "hire_date", "fire_date", "probation_end", "notes", "norm_reason", "work_mode",
     } {
         if err := r11StrictStringField(body, key); err != nil { return err }
     }
     for _, key := range []string{"is_quarter", "probation", "main_schedule_ready"} {
         if err := r11StrictBooleanField(body, key); err != nil { return err }
+    }
+    if raw:=r11Raw(body,"work_mode");len(raw)>0 {
+        var v string
+        if err:=json.Unmarshal(raw,&v);err!=nil || (v!="SHIFT" && v!="FIVE_DAY") { return fmt.Errorf("режим работы: Вахта или Пятидневка") }
     }
     if raw:=r11Raw(body,"gender");len(raw)>0 {
         var v string
