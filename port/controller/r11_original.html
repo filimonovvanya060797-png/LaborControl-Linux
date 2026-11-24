@@ -536,7 +536,7 @@ function flightCycleManagePanel(){
   let types=(state.data.schedule_types||[]).filter(t=>cid&&Number(t.cycle_id)===cid);
   let typeNote=types.length?`<span class='badge good'>${esc(types.map(t=>t.name).join(' / '))}</span>`:`<span class='muted small'>Виды графиков пока не привязаны к этому циклу</span>`;
   let days=items.sort((x,y)=>x.date.localeCompare(y.date)).map(x=>{
-   let correction=x.adjusted_from?` <span class='small muted'>(перенос с ${formatDate(x.adjusted_from)})</span>`:'';
+   let correction=x.adjusted_from&&x.adjusted_from!==x.date?` <span class='small muted'>(перенос с ${formatDate(x.adjusted_from)})</span>`:'';
    let button=Number(x.cycle_id)>0?` <button class='soft' onclick='openCycleFlightEditor(${Number(x.id)})'>Изменить рейс</button>`:'';
    return `<div style='margin:6px 0'><label><input type='checkbox' id='fcsel_${Number(x.id)}'> ${formatDate(x.date)}${correction}</label>${button}${cycleFlightEditor(x)}</div>`;
   }).join('');
