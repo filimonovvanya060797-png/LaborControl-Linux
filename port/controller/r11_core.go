@@ -464,7 +464,7 @@ func r11EmployeeUpsert(root map[string]json.RawMessage, rows []map[string]json.R
     if !created {
         for k,v:=range rows[pos] { item[k]=append(json.RawMessage(nil),v...) }
     }
-    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready"} {
+    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready","week_hours","shift_hours","norm_reason"} {
         if v:=r11Raw(body,key);len(v)>0 { item[key]=append(json.RawMessage(nil),v...) }
     }
     // Validate the complete record after merging, not only the partial request.
@@ -548,6 +548,11 @@ func (h *controller) r11EmployeeDelete(w http.ResponseWriter, r *http.Request) {
 // The date of termination itself remains writable. Historical records and
 // SAP/ISAT fact imports are not deleted or rewritten by this check.
 func r11PlanDateAllowed(emp map[string]json.RawMessage, date string) error {
+    if hire := r11String(emp, "hire_date"); hire != "" && date < hire {
+        formatted := hire
+        if d, err := time.Parse("2006-01-02", hire); err == nil { formatted = d.Format("02.01.2006") }
+        return fmt.Errorf("до приёма нельзя изменять план: первый день %s включительно", formatted)
+    }
     if fire := r11String(emp, "fire_date"); fire != "" && date > fire {
         formatted := fire
         if d, err := time.Parse("2006-01-02", fire); err == nil { formatted = d.Format("02.01.2006") }
