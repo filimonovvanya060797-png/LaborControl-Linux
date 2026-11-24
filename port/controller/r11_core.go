@@ -974,7 +974,7 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 		// the original anchors: that would silently undo a real correction.
 		if !adoptOnly {
 			for _,x:=range flights {
-				if r11Int(x,"cycle_id")==cid && r11String(x,"adjusted_from")!="" {
+				if r11Int(x,"cycle_id")==cid && r11String(x,"adjusted_from")!="" && r11String(x,"adjusted_from")!=r11String(x,"date") {
 					return nil,"",fmt.Errorf("у этого цикла уже есть перенесённые рейсы; массовое перестроение требует отдельного подтверждённого сценария")
 				}
 			}
