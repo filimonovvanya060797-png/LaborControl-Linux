@@ -250,6 +250,58 @@ static gboolean on_script_dialog(WebKitWebView *web, WebKitScriptDialog *script_
     return FALSE;
 }
 
+/* Localize WebKitGTK's native context-menu actions without replacing their
+ * behavior with JavaScript. WebKit keeps ownership and enables/disables each
+ * stock action according to the focused input and clipboard state. */
+static const gchar *r11_context_action_label(WebKitContextMenuAction action) {
+    switch (action) {
+        case WEBKIT_CONTEXT_MENU_ACTION_CUT: return "Вырезать";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY: return "Копировать";
+        case WEBKIT_CONTEXT_MENU_ACTION_PASTE: return "Вставить";
+        case WEBKIT_CONTEXT_MENU_ACTION_PASTE_AS_PLAIN_TEXT: return "Вставить без форматирования";
+        case WEBKIT_CONTEXT_MENU_ACTION_DELETE: return "Удалить";
+        case WEBKIT_CONTEXT_MENU_ACTION_SELECT_ALL: return "Выделить всё";
+        case WEBKIT_CONTEXT_MENU_ACTION_INSERT_EMOJI: return "Вставить эмодзи";
+        case WEBKIT_CONTEXT_MENU_ACTION_INPUT_METHODS: return "Способ ввода";
+        case WEBKIT_CONTEXT_MENU_ACTION_UNICODE: return "Вставить управляющий символ Юникод";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_LINK_TO_CLIPBOARD: return "Копировать адрес ссылки";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_IMAGE_TO_CLIPBOARD: return "Копировать изображение";
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_IMAGE_URL_TO_CLIPBOARD: return "Копировать адрес изображения";
+        default: return NULL;
+    }
+}
+
+/* Keep the same stock-action IDs, separators and item ordering. Only replace
+ * labels; this preserves clipboard, selection and date-input behavior. */
+static void r11_context_menu_translate(WebKitContextMenu *menu) {
+    const GList *items = webkit_context_menu_get_items(menu);
+    GList *snapshot = g_list_copy((GList *)items);
+    guint index = 0;
+    for (GList *it = snapshot; it != NULL; it = it->next, index++) {
+        WebKitContextMenuItem *item = WEBKIT_CONTEXT_MENU_ITEM(it->data);
+        WebKitContextMenuAction action = webkit_context_menu_item_get_stock_action(item);
+        const gchar *translated = r11_context_action_label(action);
+        if (translated == NULL) continue;
+        WebKitContextMenuItem *new_item =
+            webkit_context_menu_item_new_from_stock_action_with_label(action, translated);
+        webkit_context_menu_remove(menu, item);
+        webkit_context_menu_insert(menu, new_item, index);
+    }
+    g_list_free(snapshot);
+}
+
+static gboolean on_context_menu(WebKitWebView *web, WebKitContextMenu *menu,
+                                 GdkEvent *event, WebKitHitTestResult *hit,
+                                 gpointer user_data) {
+    (void)web;
+    (void)event;
+    (void)hit;
+    (void)user_data;
+    r11_context_menu_translate(menu);
+    /* FALSE: allow WebKit to display the normal, functional menu. */
+    return FALSE;
+}
+
 static gboolean try_open_page(gpointer user_data) {
     (void)user_data;
     if (desktop.closing || desktop.page_opened) return G_SOURCE_REMOVE;
@@ -324,6 +376,7 @@ static void on_activate(GtkApplication *application, gpointer user_data) {
                  "enable-javascript", TRUE, NULL);
     g_signal_connect(desktop.web, "decide-policy", G_CALLBACK(on_decide_navigation), NULL);
     g_signal_connect(desktop.web, "script-dialog", G_CALLBACK(on_script_dialog), NULL);
+    g_signal_connect(desktop.web, "context-menu", G_CALLBACK(on_context_menu), NULL);
     WebKitWebContext *context = webkit_web_view_get_context(desktop.web);
     g_signal_connect(context, "download-started", G_CALLBACK(on_download_started), NULL);
     gtk_container_add(GTK_CONTAINER(desktop.window), GTK_WIDGET(desktop.web));
