@@ -467,6 +467,11 @@ func r11EmployeeUpsert(root map[string]json.RawMessage, rows []map[string]json.R
     for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready","gender","week_hours","shift_hours","norm_reason"} {
         if v:=r11Raw(body,key);len(v)>0 { item[key]=append(json.RawMessage(nil),v...) }
     }
+    // A new employee with a known gender gets the enterprise's default week.
+    // No gender means no implicit 40-hour assignment. Existing custom weeks are kept.
+    if created && len(r11Raw(item,"week_hours"))==0 {
+        if gender:=r11String(item,"gender");gender=="M" { r11Put(item,"week_hours",40) } else if gender=="F" { r11Put(item,"week_hours",36) }
+    }
     // Validate the complete record after merging, not only the partial request.
     if err:=r11StrictEmployeePayload(item);err!=nil { return nil,0,false,err }
     if created {
