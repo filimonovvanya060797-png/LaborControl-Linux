@@ -33,6 +33,8 @@ func (h *controller) r11CoreAPI(w http.ResponseWriter, r *http.Request) {
 		h.r11EmployeeDelete(w, r)
 	case "/api/day/save", "/api/day/quick-save":
 		h.r11DaySave(w, r)
+	case "/api/autograf/five-day/save":
+		h.r11FiveDaySave(w, r)
 	case "/api/day/delete":
 		h.r11DayDelete(w, r)
 	case "/api/event/save":
@@ -464,8 +466,20 @@ func r11EmployeeUpsert(root map[string]json.RawMessage, rows []map[string]json.R
     if !created {
         for k,v:=range rows[pos] { item[k]=append(json.RawMessage(nil),v...) }
     }
-    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready","gender","week_hours","shift_hours","norm_reason"} {
+    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready","gender","week_hours","shift_hours","norm_reason","work_mode"} {
         if v:=r11Raw(body,key);len(v)>0 { item[key]=append(json.RawMessage(nil),v...) }
+    }
+    // Missing work_mode is the historical shift mode; do not reinterpret old plans.
+    if !created && r11EmployeeMode(rows[pos]) != r11EmployeeMode(item) {
+        for _, key := range []string{"days","graph_versions","graph_revisions","schedule_changes"} {
+            existing, err := r11Array(root,key)
+            if err != nil { return nil,0,false,err }
+            for _, row := range existing {
+                if r11Int(row,"employee_id")==r11Int(item,"id") {
+                    return nil,0,false,fmt.Errorf("у сотрудника уже есть график; смена режима требует отдельной редакции с даты")
+                }
+            }
+        }
     }
     // A new employee with a known gender gets the enterprise's default week.
     // No gender means no implicit 40-hour assignment. Existing custom weeks are kept.
@@ -1727,4 +1741,101 @@ func (h *controller) r11DemoAutograf(w http.ResponseWriter, r *http.Request) {
 			cursor=next;seq=3-seq}
 		r11SetArray(root,"days",days);return map[string]any{"employee_id":id,"year":year},fmt.Sprintf("Демо АвтоГраф · 311267 · %d",year),nil
 	})
+}
+
+
+// r11EmployeeMode deliberately preserves the legacy vachta behaviour.
+func r11EmployeeMode(e map[string]json.RawMessage) string {
+    if r11String(e,"work_mode")=="FIVE_DAY" { return "FIVE_DAY" }
+    return "SHIFT"
+}
+
+func r11FiveDayBaseHours(date time.Time, calendar map[string]map[string]json.RawMessage) (float64,error) {
+    key:=date.Format("2006-01-02")
+    if date.Year()==2026 {
+        md:=date.Format("01-02")
+        for _,x:=range []string{"01-01","01-02","01-03","01-04","01-05","01-06","01-07","01-08","02-23","03-08","05-01","05-09","06-12","11-04","01-09","03-09","05-11","12-31"} {
+            if md==x {return 0,nil}
+        }
+        if date.Weekday()==time.Saturday||date.Weekday()==time.Sunday{return 0,nil}
+        for _,x:=range []string{"04-30","05-08","06-11","11-03"} {if md==x{return 7,nil}}
+        return 8,nil
+    }
+    row:=calendar[key]
+    if row==nil{return 0,fmt.Errorf("нет производственного календаря на %s",key)}
+    return r11Float(row,"norm_hours"),nil
+}
+
+func r11FiveDayNorm(base,week float64) float64 {
+    if base<=0{return 0}
+    if week==40{return base}
+    if base==8||base==7{return math.Round((week/5-(8-base))*10)/10}
+    return math.Round(base*week/40*10)/10
+}
+
+// Save the whole five-day preview, including its pre-change control version,
+// under a single transaction. Recompute the calendar hours server-side;
+// reject stale/invalid previews and keep facts, comments and other employees.
+func (h *controller) r11FiveDaySave(w http.ResponseWriter,r *http.Request) {
+    h.r11Mutate(w,r,"График пятидневки записан",func(root map[string]json.RawMessage)(map[string]any,string,error){
+        body,err:=r11BodyMap(w,r,2<<20);if err!=nil{return nil,"",err}
+        employees,err:=r11Array(root,"employees");if err!=nil{return nil,"",err}
+        e,_:=r11FindEmployeeID(employees,r11Int(body,"employee_id"))
+        if e==nil||r11EmployeeMode(e)!="FIVE_DAY" {return nil,"",fmt.Errorf("сотрудник пятидневки не найден")}
+        if string(r11Raw(e,"norm_pending"))=="true" {return nil,"",fmt.Errorf("не назначена недельная норма")}
+        week:=r11Float(e,"week_hours")
+        if week<=0 {week=40;if r11String(e,"gender")=="F"{week=36}}
+        if week!=r11Float(body,"week_hours"){return nil,"",fmt.Errorf("недельная норма изменилась; пересчитайте график")}
+        var input []map[string]json.RawMessage
+        if err:=json.Unmarshal(r11Raw(body,"days"),&input);err!=nil||len(input)==0||len(input)>366{return nil,"",fmt.Errorf("ожидалось от 1 до 366 дней")}
+        calendarRows,err:=r11Array(root,"calendar");if err!=nil{return nil,"",err}
+        calendar:=map[string]map[string]json.RawMessage{}
+        for _,row:=range calendarRows{calendar[r11String(row,"date")]=row}
+        events,err:=r11Array(root,"events");if err!=nil{return nil,"",err}
+        employeeID:=r11Int(e,"id")
+        days,err:=r11Array(root,"days");if err!=nil{return nil,"",err}
+        byDate:=map[string]int{}
+        for i,d:=range days{if r11Int(d,"employee_id")==employeeID{byDate[r11String(d,"date")]=i}}
+        var previous string
+        year:=0
+        for _,row:=range input{
+            date:=r11String(row,"date");if !r11DateOK(date){return nil,"",fmt.Errorf("неверная дата")}
+            dt,_:=time.Parse("2006-01-02",date)
+            if year==0{year=dt.Year()}
+            if year<2000||year>2100||dt.Year()!=year{return nil,"",fmt.Errorf("график должен быть в пределах одного года")}
+            if previous!=""&&date!=previous{return nil,"",fmt.Errorf("даты графика должны идти подряд без повторов")}
+            previous=dt.AddDate(0,0,1).Format("2006-01-02")
+            if err:=r11PlanDateAllowed(e,date);err!=nil{return nil,"",err}
+            if string(r11Raw(e,"probation"))=="true"&&string(r11Raw(e,"main_schedule_ready"))!="true"&&r11String(e,"probation_end")!=""&&date>r11String(e,"probation_end"){return nil,"",fmt.Errorf("дата позже окончания испытательного срока")}
+            base,err:=r11FiveDayBaseHours(dt,calendar);if err!=nil{return nil,"",err}
+            expected:=r11FiveDayNorm(base,week)
+            for _,v:=range events{
+                if r11Int(v,"employee_id")==employeeID&&r11String(v,"event_type")=="VACATION"&&r11String(v,"date_from")<=date&&date<=r11String(v,"date_to"){expected=0;break}
+            }
+            var hours float64
+            if err:=json.Unmarshal(r11Raw(row,"hours"),&hours);err!=nil||math.Abs(hours-expected)>0.0000001{return nil,"",fmt.Errorf("норма календаря изменилась на %s; пересчитайте график",date)}
+            plan,state:=r11String(row,"plan"),r11String(row,"state")
+            if hours==0{if plan!="В"||state!="FREE"{return nil,"",fmt.Errorf("неверный выходной %s",date)}}else{
+                p,err:=strconv.ParseFloat(plan,64)
+                if err!=nil||hours<1||hours>11||math.Abs(p-hours)>0.0000001||state!="WORK"{return nil,"",fmt.Errorf("неверные часы плана %s",date)}
+            }
+        }
+        snapshot:=[]map[string]json.RawMessage{}
+        for _,d:=range days{if r11Int(d,"employee_id")==employeeID&&strings.HasPrefix(r11String(d,"date"),fmt.Sprintf("%04d-",year)){b,_:=json.Marshal(d);var cp map[string]json.RawMessage;_ = json.Unmarshal(b,&cp);snapshot=append(snapshot,cp)}}
+        versions,err:=r11Array(root,"graph_versions");if err!=nil{return nil,"",err}
+        version:=map[string]json.RawMessage{}
+        r11Put(version,"id",r11NextID(root));r11Put(version,"employee_id",employeeID);r11Put(version,"year",year)
+        r11Put(version,"label","Перед построением пятидневки "+r11String(input[0],"date"));r11Put(version,"reason","Построение по производственному календарю");r11Put(version,"created_at",time.Now().Format(time.RFC3339));r11Put(version,"days",snapshot)
+        versions=append(versions,version)
+        for _,row:=range input{
+            date:=r11String(row,"date")
+            pos,exists:=byDate[date]
+            var d map[string]json.RawMessage
+            if exists{d=days[pos]}else{d=map[string]json.RawMessage{};r11Put(d,"id",r11NextID(root));r11Put(d,"employee_id",employeeID);r11Put(d,"date",date)}
+            r11Put(d,"plan",r11String(row,"plan"));r11Put(d,"plan_hours",r11Float(row,"hours"));r11Put(d,"state",r11String(row,"state"));r11Put(d,"updated_at",time.Now().Format(time.RFC3339))
+            if exists{days[pos]=d}else{days=append(days,d)}
+        }
+        r11SetArray(root,"days",days);r11SetArray(root,"graph_versions",versions)
+        return map[string]any{"days":len(input),"version_id":r11Int(version,"id")},fmt.Sprintf("%s · %d дней",r11String(e,"tab_no"),len(input)),nil
+    })
 }
