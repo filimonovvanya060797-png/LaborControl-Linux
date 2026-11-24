@@ -56,11 +56,13 @@ func (h *controller) r11CollectionPointTemplate(w http.ResponseWriter,r *http.Re
     root,err:=h.r11LoadRootLocked()
     if err!=nil{h.opMu.Unlock();r11WriteError(w,http.StatusInternalServerError,err);return}
     employees,err:=r11Array(root,"employees")
+    days,dayErr:=r11Array(root,"days")
     h.opMu.Unlock()
     if err!=nil{r11WriteError(w,http.StatusInternalServerError,err);return}
+    if dayErr!=nil{r11WriteError(w,http.StatusInternalServerError,dayErr);return}
     rows:=[][]string{{"Табельный №","ФИО","Подразделение","Пункт сбора / вылета","Примечание"}}
     for _,e:=range employees{
-        if r11EmployeeMode(e)=="FIVE_DAY"||strings.TrimSpace(r11String(e,"collection_point"))!=""{continue}
+        if r11LatestConstructionMode(e,days)=="FIVE_DAY"||strings.TrimSpace(r11String(e,"collection_point"))!=""{continue}
         rows=append(rows,[]string{r11String(e,"tab_no"),r11String(e,"full_name"),r11String(e,"unit"),"",""})
     }
     data,err:=r11CollectionPointXLSX(rows)
