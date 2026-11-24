@@ -55,12 +55,25 @@ func r11StrictHoursField(body map[string]json.RawMessage, key string, maximum fl
 func r11StrictEmployeePayload(body map[string]json.RawMessage) error {
     for _, key := range []string{
         "tab_no", "full_name", "position", "unit", "collection_point",
-        "schedule_type", "hire_date", "fire_date", "probation_end", "notes",
+        "schedule_type", "hire_date", "fire_date", "probation_end", "notes", "norm_reason",
     } {
         if err := r11StrictStringField(body, key); err != nil { return err }
     }
     for _, key := range []string{"is_quarter", "probation", "main_schedule_ready"} {
         if err := r11StrictBooleanField(body, key); err != nil { return err }
+    }
+    if len(r11String(body, "norm_reason")) > 300 { return fmt.Errorf("основание нормы должно быть короче 301 символа") }
+    if raw := r11Raw(body, "week_hours"); len(raw) > 0 {
+        var v float64
+        if err := json.Unmarshal(raw, &v); err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 1 || v > 40 || math.Abs(v*10-math.Round(v*10)) > 0.000001 {
+            return fmt.Errorf("норма рабочей недели должна быть числом от 1 до 40 ч с точностью 0,1 ч")
+        }
+    }
+    if raw := r11Raw(body, "shift_hours"); len(raw) > 0 {
+        var v float64
+        if err := json.Unmarshal(raw, &v); err != nil || (v != 10 && v != 11) {
+            return fmt.Errorf("продолжительность вахтовой смены — 10 или 11 часов")
+        }
     }
     for _, key := range []string{"hire_date", "fire_date", "probation_end"} {
         if value := r11String(body, key); value != "" && !r11DateOK(value) {
