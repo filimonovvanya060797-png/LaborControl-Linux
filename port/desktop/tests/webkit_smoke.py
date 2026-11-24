@@ -37,7 +37,7 @@ SCRIPT = r"""
     setAgSection(section);check('autograf / '+section);
   }
   // Journal #47: the direct card link must select the correct record, not a blank form.
-  const sample={id:987654,tab_no:'R11-47',full_name:'Учебная пятидневка',gender:'F',week_hours:36,work_mode:'FIVE_DAY',norm_pending:true};
+  const sample={id:987654,tab_no:'R11-47',full_name:'Учебная пятидневка',gender:'F',week_hours:36,norm_pending:true};
   const savedTab=agTab;
   state.data.employees.push(sample);
   agTab=sample.tab_no;
@@ -45,17 +45,22 @@ SCRIPT = r"""
   const direct=document.querySelector('button[onclick="openGraphEmployeeCard(987654)"]');
   if(!direct) throw Error('Missing direct employee card link');
   direct.click();
-  if(document.getElementById('eid')?.value!=='987654'||document.getElementById('ename')?.value!==sample.full_name||document.getElementById('eworkmode')?.value!=='FIVE_DAY')
+  if(document.getElementById('eid')?.value!=='987654'||document.getElementById('ename')?.value!==sample.full_name||document.getElementById('eworkmode'))
     throw Error('Direct employee link opened wrong or blank card');
-  if(!document.getElementById('ecollection')?.disabled||!document.getElementById('eshifthours')?.disabled)
-    throw Error('Five-day card still requires flight fields');
+  if(document.getElementById('ecollection')?.disabled||document.getElementById('eshifthours')?.disabled)
+    throw Error('Employee card incorrectly depends on constructor method');
   sample.norm_pending=false;
   go('autograf');setAgSection('constructor');
+  if(!document.getElementById('cbuildmethod')||!document.getElementById('cshifthours')) throw Error('Missing default flight constructor');
+  constructorMethodChanged('FIVE_DAY');
   if(!document.getElementById('page').textContent.includes('Построить по календарю')||document.getElementById('cshifthours'))
     throw Error('Five-day constructor did not switch modes');
   const pFive=buildFiveDay(sample,'2026-11-02','2026-11-04');
   if(pFive.monthly[0].plan!==13.4||pFive.days['2026-11-03'].hours!==6.2||pFive.days['2026-11-04'].hours!==0)
     throw Error('Five-day construction failed');
+  constructorPreview=pFive;
+  constructorMethodChanged('SHIFT');
+  if(constructorPreview||!document.getElementById('cshifthours')) throw Error('Method switch failed to invalidate preview');
   state.data.employees=state.data.employees.filter(x=>x.id!==sample.id);
   agTab=savedTab;go('autograf');
   outcome.push({label:'Journal #47 direct employee card and five-day WebKit view',ok:true,error:''});
