@@ -58,6 +58,7 @@ type R11Day struct {
 	ID        int32  `json:"id"`
 	Plan      string `json:"plan"`
 	PlanHours int32  `json:"plan_hours"`
+	ConstructionMode string `json:"construction_mode,omitempty"`
 	Shift     string `json:"shift"`
 	State     string `json:"state"`
 	UpdatedAt string `json:"updated_at"`
