@@ -60,7 +60,7 @@ func (h *controller) r11CollectionPointTemplate(w http.ResponseWriter,r *http.Re
     if err!=nil{r11WriteError(w,http.StatusInternalServerError,err);return}
     rows:=[][]string{{"Табельный №","ФИО","Подразделение","Пункт сбора / вылета","Примечание"}}
     for _,e:=range employees{
-        if strings.TrimSpace(r11String(e,"collection_point"))!=""{continue}
+        if r11EmployeeMode(e)=="FIVE_DAY"||strings.TrimSpace(r11String(e,"collection_point"))!=""{continue}
         rows=append(rows,[]string{r11String(e,"tab_no"),r11String(e,"full_name"),r11String(e,"unit"),"",""})
     }
     data,err:=r11CollectionPointXLSX(rows)
