@@ -62,6 +62,12 @@ func r11StrictEmployeePayload(body map[string]json.RawMessage) error {
     for _, key := range []string{"is_quarter", "probation", "main_schedule_ready"} {
         if err := r11StrictBooleanField(body, key); err != nil { return err }
     }
+    if raw:=r11Raw(body,"gender");len(raw)>0 {
+        var v string
+        if err:=json.Unmarshal(raw,&v);err!=nil || (v!="" && v!="M" && v!="F") {
+            return fmt.Errorf("пол сотрудника должен быть М, Ж или не указан")
+        }
+    }
     if len(r11String(body, "norm_reason")) > 300 { return fmt.Errorf("основание нормы должно быть короче 301 символа") }
     if raw := r11Raw(body, "week_hours"); len(raw) > 0 {
         var v float64
