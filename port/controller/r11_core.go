@@ -464,7 +464,7 @@ func r11EmployeeUpsert(root map[string]json.RawMessage, rows []map[string]json.R
     if !created {
         for k,v:=range rows[pos] { item[k]=append(json.RawMessage(nil),v...) }
     }
-    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready","week_hours","shift_hours","norm_reason"} {
+    for _,key:=range []string{"tab_no","full_name","position","unit","collection_point","schedule_type","hire_date","fire_date","probation_end","notes","is_quarter","probation","main_schedule_ready","gender","week_hours","shift_hours","norm_reason"} {
         if v:=r11Raw(body,key);len(v)>0 { item[key]=append(json.RawMessage(nil),v...) }
     }
     // Validate the complete record after merging, not only the partial request.
