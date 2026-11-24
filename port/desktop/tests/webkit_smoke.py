@@ -258,6 +258,30 @@ SCRIPT = r"""
   const syntheticSurgut = {...empBase, collection_point:'Сургут', schedule_type:'Сург-Тал-Сург 7'};
   const p7 = buildByFlights(syntheticSurgut,'2026-01-07','2026-02-28');
   const p16 = buildByFlights({...syntheticSurgut,schedule_type:'Сург-Тал-Сург 16'},'2026-01-16','2026-02-28');
+  // Employee's legal weekly norm is independent from a work-shift length.
+  if (Math.abs(employeeNormHour({week_hours:36},{norm_hours:8})-7.2)>0.0001 ||
+      Math.abs(employeeNormHour({week_hours:36},{norm_hours:7})-6.2)>0.0001 ||
+      employeeNormHour({week_hours:40},{norm_hours:7})!==7 ||
+      employeeNormHour({week_hours:36},{norm_hours:0})!==0)
+    throw Error('Individual 36-hour norm or shortened working day failed');
+  const lateHire = {...syntheticSurgut,hire_date:'2026-01-10',fire_date:'',probation:false,week_hours:36,shift_hours:10};
+  const pLate = buildByFlights(lateHire,'2026-01-01','2026-01-28',10);
+  if (Object.keys(pLate.days).some(d=>d<'2026-01-10') ||
+      pLate.days['2026-01-10']?.plan!=='10' ||
+      pLate.days['2026-01-10']?.hours!==10 ||
+      pLate.days['2026-01-07'] ||
+      Object.keys(pLate.days).length!==19 ||
+      pLate.shift_hours!==10 || pLate.week_hours!==36)
+    throw Error('Constructor recorded dates before hire or ignored 10-hour shift');
+  const pExit = buildByFlights({...lateHire,fire_date:'2026-01-18'},'2026-01-01','2026-01-28',10);
+  if (Object.keys(pExit.days).some(d=>d>'2026-01-18') ||
+      Object.keys(pExit.days).length!==9)
+    throw Error('Constructor recorded dates after termination');
+  const maleTen = buildByFlights({...syntheticSurgut,week_hours:40,shift_hours:10,hire_date:''},'2026-01-07','2026-01-28',10);
+  if (maleTen.days['2026-01-08']?.hours!==10 || maleTen.days['2026-01-07']?.plan!=='ДП')
+    throw Error('10-hour work shift did not preserve flight day');
+  outcome.push({label:'Autograf: 36/40 weekly norms, 10/11 shifts, hire and termination bounds',ok:true,error:''});
+
   if (p7.days['2026-01-07']?.plan!=='ДП' || p7.days['2026-01-29']?.plan!=='ДП' ||
       p7.days['2026-01-16']?.plan==='ДП' || p7.days['2026-02-13']?.plan==='ДП')
     throw Error('Cycle 7 constructor mixed another cycle’s dates');
