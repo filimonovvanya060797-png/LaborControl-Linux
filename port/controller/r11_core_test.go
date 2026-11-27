@@ -623,3 +623,12 @@ func TestR11TwoCyclesMayContainSameCalendarDateWithoutOverwrite(t *testing.T) {
 	}
 	if len(found)!=2||!found[a]||!found[b] {t.Fatalf("same calendar day must belong to two distinct cycles: %+v",found)}
 }
+
+func TestR11CyclePairDefaultsToStandardDotConvention(t *testing.T) {
+ h:=newR11TestController(t)
+ resp:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/save",
+   `{"collection_point":"Сургут","first":"2026-01-07","second":"2026-01-29","year":2026,"create_types":true,"name":"Сург-Тал-Сург 7"}`)
+ if resp.Code!=http.StatusOK {t.Fatalf("default pair: %d %s",resp.Code,resp.Body.String())}
+ rows:=r11CycleRowsForTest(t,h,"schedule_types")
+ if len(rows)!=2||r11String(rows[0],"name")!="Сург-Тал-Сург 7"||r11String(rows[0],"phase")!="A"||r11String(rows[1],"name")!="Сург-Тал-Сург 7."||r11String(rows[1],"phase")!="B"||r11Int(rows[0],"cycle_id")<=0||r11Int(rows[0],"cycle_id")!=r11Int(rows[1],"cycle_id"){t.Fatalf("wrong default pair: %v",rows)}
+}
