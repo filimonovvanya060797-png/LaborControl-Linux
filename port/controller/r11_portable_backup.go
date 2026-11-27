@@ -64,6 +64,7 @@ func validatePortableEntry(e portableBackupEntry) error {
  if err:=json.Unmarshal(e.Data,&root);err!=nil||root==nil{return fmt.Errorf("повреждён JSON файла %s",e.Name)}
  if e.Name==portableBackupNames[0] {
   if wrapped,ok:=root["data"];ok {
+   root=nil
    if err:=json.Unmarshal(wrapped,&root);err!=nil||root==nil{return fmt.Errorf("повреждена структура основной базы")}
   }
  }
@@ -78,13 +79,13 @@ func validatePortableEntry(e portableBackupEntry) error {
   keys=r11RequiredDataKeys
  case "labor_control_tab2.json":
   if version!=2 {return fmt.Errorf("неподдерживаемая версия Табеля 2.0: %d",version)}
-  keys=[]string{"imports","sap_records","facts","szrvd"}
+  keys=[]string{"imports","sap_records","facts","sz_rvd"}
  default:return fmt.Errorf("неизвестный файл")
  }
  for _,key:=range keys {
   if key=="schema_version"||key=="next_id"{continue}
   var rows []json.RawMessage
-  v,ok:=root[key]; if !ok || json.Unmarshal(v,&rows)!=nil || bytes.Equal(bytes.TrimSpace(v),[]byte("null")) {
+  v,ok:=root[key]; if !ok || json.Unmarshal(v,&rows)!=nil {
    return fmt.Errorf("не распознано поле %s в %s",key,e.Name)
   }
  }
