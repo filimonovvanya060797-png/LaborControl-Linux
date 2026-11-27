@@ -155,8 +155,8 @@ SCRIPT = r"""
   if (state.data.flight_dates.length)
     throw Error('Cycle preview must not write to database');
   if (!document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle(true)"]') ||
-      !document.getElementById('fcname') || !document.getElementById('fcphase'))
-    throw Error('Cycle preview must offer atomic Save cycle and pair with one editable type name');
+      !document.getElementById('fcname') || document.getElementById('fcphase'))
+    throw Error('Cycle preview must offer atomic Save cycle and pair without manual phase selection');
   // Batch UX check: actual DOM after a preview must retain anchors and show cancellation.
   if (document.getElementById('fcfirst').value !== '2026-09-01' ||
       document.getElementById('fcsecond').value !== '2026-09-30')
@@ -252,6 +252,19 @@ SCRIPT = r"""
   const syntheticSurgut = {...empBase, collection_point:'Сургут', schedule_type:'Сург-Тал-Сург 7'};
   const p7 = buildByFlights(syntheticSurgut,'2026-01-07','2026-02-28');
   const p16 = buildByFlights({...syntheticSurgut,schedule_type:'Сург-Тал-Сург 16'},'2026-01-16','2026-02-28');
+  // Existing linked standard pairs must work even if the saved phase is absent.
+  const pairedTypes=state.data.schedule_types.filter(x=>[773,774,883,884].includes(x.id));
+  for(const t of pairedTypes) delete t.phase;
+  for(const [name,start,next] of [['Сург-Тал-Сург 7','2026-01-10','2026-01-29'],['Сург-Тал-Сург 16','2026-01-20','2026-02-13']]){
+    for(const suffix of ['','.']){
+      const p=buildByFlights({...syntheticSurgut,schedule_type:name+suffix,hire_date:'',fire_date:'',probation:false},start,'2026-02-20',11);
+      if(p.days[start]?.plan!==(suffix?'В':'11')||p.days[next]?.state!==(suffix?'WORK':'FREE'))
+        throw Error('Automatic dotted cycle phase failed: '+name+suffix);
+    }
+  }
+  if(pairedTypes.some(t=>t.phase))throw Error('Phase lookup mutated stored graph types');
+  for(const t of pairedTypes)t.phase=t.name.endsWith('.')?'B':'A';
+  outcome.push({label:'Autograf: dotted pairs infer phase only on their own cycle',ok:true,error:''});
   // Employee's legal weekly norm is independent from a work-shift length.
   if (Math.abs(employeeNormHour({week_hours:36},{norm_hours:8})-7.2)>0.0001 ||
       Math.abs(employeeNormHour({week_hours:36},{norm_hours:7})-6.2)>0.0001 ||
