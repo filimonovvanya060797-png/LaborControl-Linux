@@ -324,6 +324,15 @@ SCRIPT = r"""
     throw Error('Date fields in another tab were not enhanced');
   outcome.push({label:'unified editable dates: probation, flights, anchors, invalid dates, clear, redraw',ok:true,error:''});
   setAgSection('graph');agSetView('year');check('autograf / yearly view');
+  go('settings');check('settings / portable backup');
+  if (!document.getElementById('portableBackupFile') ||
+      !document.getElementById('portableBackupStatus') ||
+      !document.getElementById('page').textContent.includes('Восстановить в отдельный профиль'))
+    throw Error('Backup controls absent');
+  portableBackupCheck(false);
+  if (!document.getElementById('portableBackupStatus').textContent.includes('Выберите файл'))
+    throw Error('Backup file validation absent');
+  outcome.push({label:'portable backup controls and missing file guard',ok:true,error:''});
   go('check');
   const frame=document.querySelector('#page iframe');
   const iframe=frame?.getAttribute('src')||'';
