@@ -976,8 +976,11 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 		wantTypes:=r11Bool(body,"create_types")
 		adoptOnly:=r11Bool(body,"adopt_only")
 		name,phase:=r11String(body,"name"),r11String(body,"phase")
+        // New UI omits phase selection; the standard dotted pair starts with A.
+        // Explicit legacy callers retain their existing contract.
+        if phase=="" {phase="A"}
 		if wantTypes && (name==""||len(name)>145||strings.HasSuffix(name,".")||(phase!="A"&&phase!="B")) {
-			return nil,"",fmt.Errorf("укажите название графика без точки и первую рабочую/свободную фазу")
+			return nil,"",fmt.Errorf("укажите название графика без точки")
 		}
 		cycles,err:=r11Array(root,"flight_cycles");if err!=nil{return nil,"",err}
 		flights,err:=r11Array(root,"flight_dates");if err!=nil{return nil,"",err}
@@ -1073,8 +1076,8 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 			var one,two map[string]json.RawMessage
 			for _,x:=range types {
 				if r11String(x,"collection_point")!=point {continue}
-				if strings.EqualFold(r11String(x,"name"),name) {one=x}
-				if strings.EqualFold(r11String(x,"name"),partner) {two=x}
+				if strings.EqualFold(r11String(x,"name"),name) {if one!=nil{return nil,"",fmt.Errorf("найдены повторяющиеся виды %q",name)};one=x}
+				if strings.EqualFold(r11String(x,"name"),partner) {if two!=nil{return nil,"",fmt.Errorf("найдены повторяющиеся виды %q",partner)};two=x}
 			}
 			other:="A";if phase=="A" {other="B"}
 			for _,check:=range []struct{row map[string]json.RawMessage;title,pair,ph string}{
