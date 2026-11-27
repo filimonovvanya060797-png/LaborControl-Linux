@@ -976,12 +976,13 @@ func (h *controller) r11CycleSave(w http.ResponseWriter, r *http.Request) {
 		wantTypes:=r11Bool(body,"create_types")
 		adoptOnly:=r11Bool(body,"adopt_only")
 		name,phase:=r11String(body,"name"),r11String(body,"phase")
-        // New UI omits phase selection; the standard dotted pair starts with A.
-        // Explicit legacy callers retain their existing contract.
+        // New cycle pairs use the fixed dotted convention. Legacy standalone
+        // pair API is unchanged; never silently reverse already stored pairs.
         if phase=="" {phase="A"}
-		if wantTypes && (name==""||len(name)>145||strings.HasSuffix(name,".")||(phase!="A"&&phase!="B")) {
+		if wantTypes && (name==""||len(name)>145||strings.HasSuffix(name,".")) {
 			return nil,"",fmt.Errorf("укажите название графика без точки")
 		}
+        if wantTypes && phase!="A" {return nil,"",fmt.Errorf("у вида без точки первая вахта рабочая; у вида с точкой свободная")}
 		cycles,err:=r11Array(root,"flight_cycles");if err!=nil{return nil,"",err}
 		flights,err:=r11Array(root,"flight_dates");if err!=nil{return nil,"",err}
 		types,err:=r11Array(root,"schedule_types");if err!=nil{return nil,"",err}
