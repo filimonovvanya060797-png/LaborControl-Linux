@@ -93,6 +93,10 @@ func (h *controller) r11CoreAPI(w http.ResponseWriter, r *http.Request) {
 		h.r11ColorDelete(w, r)
 	case "/api/backup":
 		h.r11Backup(w, r)
+	case "/api/backup/portable":
+		h.portableBackupDownload(w, r)
+	case "/api/backup/inspect", "/api/backup/prepare-restore":
+		h.portableBackupInspect(w, r)
 	case "/api/import/fact":
 		h.r11ImportFact(w, r)
 	case "/api/import/events":
