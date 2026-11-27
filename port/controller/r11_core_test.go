@@ -626,6 +626,10 @@ func TestR11TwoCyclesMayContainSameCalendarDateWithoutOverwrite(t *testing.T) {
 
 func TestR11CyclePairDefaultsToStandardDotConvention(t *testing.T) {
  h:=newR11TestController(t)
+ rejected:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/save",
+   `{"collection_point":"Сургут","first":"2026-01-07","second":"2026-01-29","year":2026,"create_types":true,"name":"Сург-Тал-Сург 7","phase":"B"}`)
+ if rejected.Code!=http.StatusBadRequest||len(r11CycleRowsForTest(t,h,"schedule_types"))!=0{t.Fatalf("reverse phase must not be saved: %d %s",rejected.Code,rejected.Body.String())}
+
  resp:=callR11Core(h,http.MethodPost,"/api/autograf/cycle/save",
    `{"collection_point":"Сургут","first":"2026-01-07","second":"2026-01-29","year":2026,"create_types":true,"name":"Сург-Тал-Сург 7"}`)
  if resp.Code!=http.StatusOK {t.Fatalf("default pair: %d %s",resp.Code,resp.Body.String())}
