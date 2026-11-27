@@ -164,7 +164,7 @@ SCRIPT = r"""
   const cancelCycle = document.querySelector('#flightCyclePreviewBox button[onclick="cancelFlightCyclePreview()"]');
   if (!cancelCycle) throw Error('Flight cycle preview has no Cancel action');
   cancelCycle.click();
-  if (flightCyclePreview || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle()"]'))
+  if (flightCyclePreview || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle(true)"]'))
     throw Error('Cancelled flight cycle preview still offers Save');
   if (document.getElementById('fcfirst').value !== '2026-09-01')
     throw Error('Cancelling a preview should preserve editable anchor dates');
@@ -174,7 +174,7 @@ SCRIPT = r"""
   if (!updatedSecond) throw Error('Updated cycle form must keep typed input');
   updatedSecond.value = '02102026';
   updatedSecond.dispatchEvent(new Event('input',{bubbles:true}));
-  if (flightCyclePreview !== null || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle()"]'))
+  if (flightCyclePreview !== null || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle(true)"]'))
     throw Error('Edited input must invalidate old cycle preview automatically');
   if (state.data.flight_dates.length) throw Error('Preview or cancel wrote flight data');
   const flightEdit = {id:91,collection_point:'Тюмень',date:'2026-10-02',source:'Ручной ввод',note:'Учебный'};
