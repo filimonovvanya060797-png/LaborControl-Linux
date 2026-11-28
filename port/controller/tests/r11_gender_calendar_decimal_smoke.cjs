@@ -159,3 +159,57 @@ assert.equal(run('resolvedSchedulePhase(state.data.schedule_types[0])'),'');
 run("state.data.schedule_types[0].phase='';state.data.schedule_types[0].cycle_id=0;state.data.schedule_types[1].cycle_id=0");
 assert.equal(run('resolvedSchedulePhase(state.data.schedule_types[0])'),'');
 console.log('Journal #47: neutral zero, calendar color and linked dotted pairs: PASS');
+
+
+// #47 ALT-07R: selection shown by the UI must match actual constructor state.
+run("state.data.schedule_types[0].cycle_id=70;state.data.schedule_types[1].cycle_id=70;state.data.schedule_types[0].phase='';state.data.employees=[{id:1,tab_no:'T-01',full_name:'Тест',collection_point:'Сургут',schedule_type:'',week_hours:40,shift_hours:11}];state.data.days=[];agTab='T-01';constructorSchedule='';constructorMethodKey='';constructorForm=null;constructorPreview=null");
+assert.match(run('autografConstructor()'), /<option value="" disabled selected>Выберите вид графика/);
+assert.match(run('autografConstructor()'), /onclick="runConstructor\(\)" disabled>Построить по полётам/);
+assert.equal(run('constructorEmp().schedule_type'),'');
+run("constructorSchedule='Сург-Тал-Сург 16'");
+assert.match(run('autografConstructor()'), /value="Сург-Тал-Сург 16" selected/);
+assert.match(run('autografConstructor()'), /Первая последовательность цикла — рабочая вахта/);
+assert.ok(!run('autografConstructor()').includes('onclick="runConstructor()" disabled'));
+assert.equal(run('agEmployee().schedule_type'),'','preview selection must not write card');
+run("agEmployee().norm_pending=true");
+assert.match(run('autografConstructor()'), /value="Не назначена" disabled/);
+assert.match(run('autografConstructor()'), /onclick="runConstructor\(\)" disabled/);
+run("agEmployee().norm_pending=false");
+
+for(const [name,first,second] of [['Сург-Тал-Сург 7','2026-01-07','2026-01-29'],['Сург-Тал-Сург 16','2026-01-16','2026-02-13']]){
+ for(const suffix of ['','.']){
+  for(const hours of [10,11]){
+   const e={id:1,collection_point:'Сургут',schedule_type:name+suffix,week_hours:40,shift_hours:hours,hire_date:'2025-12-25'};
+   const build=(start,end,overrides={})=>JSON.parse(run('JSON.stringify(buildByFlights('+JSON.stringify({...e,...overrides})+','+JSON.stringify(start)+','+JSON.stringify(end)+'))'));
+   const p=build('2026-01-01','2026-02-20');
+   assert.equal(p.actual_start,'2026-01-01');
+   assert.equal(p.days['2026-01-01'].plan,suffix?String(hours):'В');
+   assert.equal(p.days[first].plan,'ДП');
+   assert.equal(p.days[first].hours,0);
+   assert.equal(p.days[second].plan,'ДП');
+   assert.equal(p.days[second].state,suffix?'WORK':'FREE');
+   assert.deepEqual(Object.values(p.days).filter(d=>d.plan==='ДП').map(d=>d.date),[first,second]);
+   assert.equal(p.phases[0].plan_hours,(Number(first.slice(-2))-1)*(suffix?hours:0));
+   assert.equal(p.monthly.reduce((s,m)=>s+m.plan,0),Object.values(p.days).reduce((s,d)=>s+d.hours,0));
+   const hired=build('2026-01-01','2026-02-20',{hire_date:'2026-01-04'});
+   assert.equal(hired.actual_start,'2026-01-04');
+   assert.equal(hired.days['2026-01-03'],undefined);
+   const onlyBefore=build('2026-01-02','2026-01-04');
+   assert.equal(Object.keys(onlyBefore.days).length,3);
+   assert.ok(Object.values(onlyBefore.days).every(d=>d.plan!=='ДП'));
+   const hiredOn=build('2026-01-01','2026-02-20',{hire_date:first});
+   assert.equal(hiredOn.actual_start,first);
+   const hiredAfter=build('2026-01-01','2026-02-20',{hire_date:'2026-01-20'});
+   assert.equal(hiredAfter.actual_start,'2026-01-20');
+   assert.equal(hiredAfter.days['2026-01-20'].plan,suffix?'В':String(hours));
+   const fired=build('2026-01-01','2026-02-20',{fire_date:'2026-01-04'});
+   assert.equal(fired.actual_end,'2026-01-04');
+  }
+ }
+}
+run("state.data.flight_dates.push({date:'2025-12-19',collection_point:'Сургут',cycle_id:160,sequence:2})");
+const prior=JSON.parse(run("JSON.stringify(buildByFlights({id:1,collection_point:'Сургут',schedule_type:'Сург-Тал-Сург 16.',week_hours:40,shift_hours:11},'2026-01-01','2026-01-20'))"));
+assert.equal(prior.days['2026-01-01'].plan,'11');
+assert.match(prior.phases[0].events,/19.12.2025/);
+assert.ok(!prior.warnings.some(x=>x.includes('противоположная фаза')));
+console.log('Journal #47: explicit selection and pre-anchor phase: PASS');
