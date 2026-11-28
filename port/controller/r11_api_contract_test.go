@@ -26,11 +26,11 @@ func TestR11OriginalFrontendHasNoUnmappedAPIEndpoints(t *testing.T) {
 			req:=httptest.NewRequest(http.MethodGet,path,nil)
 			rec:=httptest.NewRecorder()
 			h.r11CoreAPI(rec,req)
-			// State, revision/get and the XLSX template are read-only. Write routes return 405.
+			// State, revision/get, XLSX template and portable snapshot download are read-only. Write routes return 405.
 			if rec.Code==http.StatusNotFound{
 				t.Fatalf("the original frontend uses %s, but the Linux Core has no handler",path)
 			}
-			if path!="/api/state"&&path!="/api/autograf/revision/get"&&path!="/api/employee/points/template.xlsx"&&rec.Code!=http.StatusMethodNotAllowed{
+			if path!="/api/state"&&path!="/api/autograf/revision/get"&&path!="/api/employee/points/template.xlsx"&&path!="/api/backup/portable"&&rec.Code!=http.StatusMethodNotAllowed{
 				t.Fatalf("write operation %s accepted a GET request: HTTP %d",path,rec.Code)
 			}
 		})

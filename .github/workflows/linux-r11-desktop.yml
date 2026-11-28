@@ -61,6 +61,9 @@ jobs:
       - name: Build isolated Linux desktop distribution
         shell: bash
         run: bash port/desktop/build.sh "$RUNNER_TEMP/laborcontrol-r11-desktop"
+      - name: Check installer dependency failure and successful menu installation
+        shell: bash
+        run: bash port/desktop/tests/install_user_smoke.sh "$RUNNER_TEMP/laborcontrol-r11-desktop"
       - name: Check Russian native right-click menu and stock actions
         shell: bash
         run: |
@@ -88,6 +91,7 @@ jobs:
           curl -fsS -X POST http://127.0.0.1:8779/api/autograf/version/create -H 'Content-Type: application/json' -d '{"tab_no":"990001","year":2026,"label":"Тест до изменения"}'
           curl -fsS -X POST http://127.0.0.1:8779/api/autograf/revision/create -H 'Content-Type: application/json' -d '{"tab_no":"990001","effective_date":"2026-11-01","schedule_type":"","reason":"Исходный график"}'
           timeout 90s xvfb-run -a /usr/bin/python3 port/desktop/tests/webkit_smoke.py
+          timeout 60s xvfb-run -a /usr/bin/python3 port/desktop/tests/backup_download_smoke.py
       - name: Check shell without display and library dependencies
         shell: bash
         run: |

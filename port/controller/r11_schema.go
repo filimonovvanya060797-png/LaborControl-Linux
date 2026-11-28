@@ -58,6 +58,7 @@ type R11Day struct {
 	ID        int32  `json:"id"`
 	Plan      string `json:"plan"`
 	PlanHours int32  `json:"plan_hours"`
+	ConstructionMode string `json:"construction_mode,omitempty"`
 	Shift     string `json:"shift"`
 	State     string `json:"state"`
 	UpdatedAt string `json:"updated_at"`
@@ -71,6 +72,7 @@ type R11Employee struct {
 	WeekHours        float64 `json:"week_hours,omitempty"`
 	ShiftHours       int32   `json:"shift_hours,omitempty"`
 	NormReason       string  `json:"norm_reason,omitempty"`
+	WorkMode         string  `json:"work_mode,omitempty"`
 	ID               int32  `json:"id"`
 	IsQuarter        bool   `json:"is_quarter"`
 	MainScheduleReady bool  `json:"main_schedule_ready"`

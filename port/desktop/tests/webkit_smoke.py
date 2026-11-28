@@ -36,6 +36,34 @@ SCRIPT = r"""
   for (const section of ['graph','vacations','constructor','summary','calendar','types','flights','versions']) {
     setAgSection(section);check('autograf / '+section);
   }
+  // Journal #47: the direct card link must select the correct record, not a blank form.
+  const sample={id:987654,tab_no:'R11-47',full_name:'Учебная пятидневка',gender:'F',week_hours:36,norm_pending:true};
+  const savedTab=agTab;
+  state.data.employees.push(sample);
+  agTab=sample.tab_no;
+  setAgSection('graph');
+  const direct=document.querySelector('button[onclick="openGraphEmployeeCard(987654)"]');
+  if(!direct) throw Error('Missing direct employee card link');
+  direct.click();
+  if(document.getElementById('eid')?.value!=='987654'||document.getElementById('ename')?.value!==sample.full_name||document.getElementById('eworkmode'))
+    throw Error('Direct employee link opened wrong or blank card');
+  if(document.getElementById('ecollection')?.disabled||document.getElementById('eshifthours')?.disabled)
+    throw Error('Employee card incorrectly depends on constructor method');
+  sample.norm_pending=false;
+  go('autograf');setAgSection('constructor');
+  if(!document.getElementById('cbuildmethod')||!document.getElementById('cshifthours')) throw Error('Missing default flight constructor');
+  constructorMethodChanged('FIVE_DAY');
+  if(!document.getElementById('page').textContent.includes('Построить по календарю')||document.getElementById('cshifthours'))
+    throw Error('Five-day constructor did not switch modes');
+  const pFive=buildFiveDay(sample,'2026-11-02','2026-11-04');
+  if(pFive.monthly[0].plan!==13.4||pFive.days['2026-11-03'].hours!==6.2||pFive.days['2026-11-04'].hours!==0)
+    throw Error('Five-day construction failed');
+  constructorPreview=pFive;
+  constructorMethodChanged('SHIFT');
+  if(constructorPreview||!document.getElementById('cshifthours')) throw Error('Method switch failed to invalidate preview');
+  state.data.employees=state.data.employees.filter(x=>x.id!==sample.id);
+  agTab=savedTab;go('autograf');
+  outcome.push({label:'Journal #47 direct employee card and five-day WebKit view',ok:true,error:''});
   // Unified date input regression: actual GTK WebKit DOM and native ISO values.
   if (!window.r11DateFields) throw Error('Unified date controls were not loaded');
   if (r11DateFields.parseDate('31.02.2026') !== null ||
@@ -127,8 +155,8 @@ SCRIPT = r"""
   if (state.data.flight_dates.length)
     throw Error('Cycle preview must not write to database');
   if (!document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle(true)"]') ||
-      !document.getElementById('fcname') || !document.getElementById('fcphase'))
-    throw Error('Cycle preview must offer atomic Save cycle and pair with one editable type name');
+      !document.getElementById('fcname') || document.getElementById('fcphase'))
+    throw Error('Cycle preview must offer atomic Save cycle and pair without manual phase selection');
   // Batch UX check: actual DOM after a preview must retain anchors and show cancellation.
   if (document.getElementById('fcfirst').value !== '2026-09-01' ||
       document.getElementById('fcsecond').value !== '2026-09-30')
@@ -136,7 +164,7 @@ SCRIPT = r"""
   const cancelCycle = document.querySelector('#flightCyclePreviewBox button[onclick="cancelFlightCyclePreview()"]');
   if (!cancelCycle) throw Error('Flight cycle preview has no Cancel action');
   cancelCycle.click();
-  if (flightCyclePreview || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle()"]'))
+  if (flightCyclePreview || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle(true)"]'))
     throw Error('Cancelled flight cycle preview still offers Save');
   if (document.getElementById('fcfirst').value !== '2026-09-01')
     throw Error('Cancelling a preview should preserve editable anchor dates');
@@ -146,7 +174,7 @@ SCRIPT = r"""
   if (!updatedSecond) throw Error('Updated cycle form must keep typed input');
   updatedSecond.value = '02102026';
   updatedSecond.dispatchEvent(new Event('input',{bubbles:true}));
-  if (flightCyclePreview !== null || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle()"]'))
+  if (flightCyclePreview !== null || document.querySelector('#flightCyclePreviewBox button[onclick="saveFlightCycle(true)"]'))
     throw Error('Edited input must invalidate old cycle preview automatically');
   if (state.data.flight_dates.length) throw Error('Preview or cancel wrote flight data');
   const flightEdit = {id:91,collection_point:'Тюмень',date:'2026-10-02',source:'Ручной ввод',note:'Учебный'};
@@ -224,6 +252,57 @@ SCRIPT = r"""
   const syntheticSurgut = {...empBase, collection_point:'Сургут', schedule_type:'Сург-Тал-Сург 7'};
   const p7 = buildByFlights(syntheticSurgut,'2026-01-07','2026-02-28');
   const p16 = buildByFlights({...syntheticSurgut,schedule_type:'Сург-Тал-Сург 16'},'2026-01-16','2026-02-28');
+  // Existing linked standard pairs must work even if the saved phase is absent.
+  const pairedTypes=state.data.schedule_types.filter(x=>[773,774,883,884].includes(x.id));
+  for(const t of pairedTypes) delete t.phase;
+  for(const [name,start,next] of [['Сург-Тал-Сург 7','2026-01-10','2026-01-29'],['Сург-Тал-Сург 16','2026-01-20','2026-02-13']]){
+    for(const suffix of ['','.']){
+      const p=buildByFlights({...syntheticSurgut,schedule_type:name+suffix,hire_date:'',fire_date:'',probation:false},start,'2026-02-20',11);
+      if(p.days[start]?.plan!==(suffix?'В':'11')||p.days[next]?.state!==(suffix?'WORK':'FREE'))
+        throw Error('Automatic dotted cycle phase failed: '+name+suffix);
+    }
+  }
+  if(pairedTypes.some(t=>t.phase))throw Error('Phase lookup mutated stored graph types');
+  for(const t of pairedTypes)t.phase=t.name.endsWith('.')?'B':'A';
+  outcome.push({label:'Autograf: dotted pairs infer phase only on their own cycle',ok:true,error:''});
+  // Actual DOM regression for ALT-07R: choose 10 h before confirming the type.
+  const shiftSample={id:987655,tab_no:'R11-47-SHIFT',full_name:'Учебная смена',gender:'F',week_hours:36,shift_hours:11,collection_point:'Сургут',schedule_type:'',hire_date:'2025-12-25'};
+  const beforeShiftTab=agTab, beforeShiftYear=agYear, beforeConfirm=window.confirm;
+  state.data.employees.push(shiftSample);
+  try {
+    agYear=2026; go('autograf');setAgSection('constructor');constructorSetTab(shiftSample.tab_no);
+    window.confirm=()=>true;
+    const shiftSelect=document.getElementById('cshifthours');
+    // A native select can visually change before its change event is delivered.
+    shiftSelect.value='10';
+    const typeSelect=document.querySelector('select[onchange="constructorScheduleChanged(this.value)"]');
+    typeSelect.value='Сург-Тал-Сург 7.';
+    typeSelect.dispatchEvent(new Event('change',{bubbles:true}));
+    if(document.getElementById('cshifthours').value!=='10'||constructorSchedule!=='Сург-Тал-Сург 7.')throw Error('Selecting type discarded shift or type: '+JSON.stringify({shift:val('cshifthours'),type:constructorSchedule}));
+    r11DateFields.enhanceInside(document.getElementById('page'));
+    document.getElementById('cstart').value='2026-01-01';
+    document.getElementById('cend').value='2026-02-20';
+    const shiftButton=document.querySelector('button[onclick="runConstructor()"]');
+    if(!shiftButton||shiftButton.disabled)throw Error('Constructor button unavailable: '+JSON.stringify({type:constructorSchedule,employee:agEmployee(),phase:scheduleObj(constructorEmp())}));
+    shiftButton.click();
+    if(!constructorPreview||constructorPreview.shift_hours!==10||constructorPreview.days['2026-01-01'].hours!==10||constructorPreview.days['2026-01-07'].hours!==0)
+      throw Error('Actual constructor ignored selected 10-hour shift: '+JSON.stringify({toast:document.getElementById('toast')?.textContent,form:constructorForm,shift:val('cshifthours'),type:constructorSchedule,preview:constructorPreview&&{shift:constructorPreview.shift_hours,first:constructorPreview.days['2026-01-01'],dp:constructorPreview.days['2026-01-07']}}));
+    if(employeeShiftHours({gender:'F'})!==10||employeeShiftHours({gender:'M'})!==11||employeeShiftHours({gender:'F',shift_hours:11})!==11||employeeShiftHours({gender:'M',shift_hours:10})!==10)throw Error('Default shift must preserve explicit values');
+    const shiftAgain=document.getElementById('cshifthours');
+    shiftAgain.value='11';shiftAgain.dispatchEvent(new Event('input',{bubbles:true}));
+    if(constructorPreview||document.querySelector('#constructorPreviewBox button[onclick="applyConstructorPreview()"]'))
+      throw Error('Changed shift left stale preview available for saving');
+    if(document.getElementById('cshifthours')!==shiftAgain)throw Error('Shift change replaced its own DOM field');
+    shiftAgain.value='10';shiftAgain.dispatchEvent(new Event('change',{bubbles:true}));
+    runConstructor();
+    if(constructorPreview?.shift_hours!==10||shiftSample.shift_hours!==11)
+      throw Error('Preview must use 10 hours without writing employee card');
+  } finally {
+    window.confirm=beforeConfirm;
+    state.data.employees=state.data.employees.filter(x=>x.id!==shiftSample.id);
+    agYear=beforeShiftYear;constructorSetTab(beforeShiftTab);
+  }
+  outcome.push({label:'ALT-07R actual WebKit shift selection survives type confirmation and redraw',ok:true,error:''});
   // Employee's legal weekly norm is independent from a work-shift length.
   if (Math.abs(employeeNormHour({week_hours:36},{norm_hours:8})-7.2)>0.0001 ||
       Math.abs(employeeNormHour({week_hours:36},{norm_hours:7})-6.2)>0.0001 ||
@@ -283,6 +362,15 @@ SCRIPT = r"""
     throw Error('Date fields in another tab were not enhanced');
   outcome.push({label:'unified editable dates: probation, flights, anchors, invalid dates, clear, redraw',ok:true,error:''});
   setAgSection('graph');agSetView('year');check('autograf / yearly view');
+  go('settings');check('settings / portable backup');
+  if (!document.getElementById('portableBackupFile') ||
+      !document.getElementById('portableBackupStatus') ||
+      !document.getElementById('page').textContent.includes('Восстановить в отдельный профиль'))
+    throw Error('Backup controls absent');
+  portableBackupCheck(false);
+  if (!document.getElementById('portableBackupStatus').textContent.includes('Выберите файл'))
+    throw Error('Backup file validation absent');
+  outcome.push({label:'portable backup controls and missing file guard',ok:true,error:''});
   go('check');
   const frame=document.querySelector('#page iframe');
   const iframe=frame?.getAttribute('src')||'';
