@@ -265,6 +265,40 @@ SCRIPT = r"""
   if(pairedTypes.some(t=>t.phase))throw Error('Phase lookup mutated stored graph types');
   for(const t of pairedTypes)t.phase=t.name.endsWith('.')?'B':'A';
   outcome.push({label:'Autograf: dotted pairs infer phase only on their own cycle',ok:true,error:''});
+  // Actual DOM regression for ALT-07R: choose 10 h before confirming the type.
+  const shiftSample={id:987655,tab_no:'R11-47-SHIFT',full_name:'Учебная смена',gender:'F',week_hours:36,shift_hours:11,collection_point:'Сургут',schedule_type:'',hire_date:'2025-12-25'};
+  const beforeShiftTab=agTab, beforeShiftYear=agYear, beforeConfirm=window.confirm;
+  state.data.employees.push(shiftSample);
+  try {
+    agYear=2026; go('autograf');setAgSection('constructor');constructorSetTab(shiftSample.tab_no);
+    window.confirm=()=>true;
+    const shiftSelect=document.getElementById('cshifthours');
+    // A native select can visually change before its change event is delivered.
+    shiftSelect.value='10';
+    const typeSelect=document.querySelector('select[onchange="constructorScheduleChanged(this.value)"]');
+    typeSelect.value='Сург-Тал-Сург 7.';
+    typeSelect.dispatchEvent(new Event('change',{bubbles:true}));
+    if(document.getElementById('cshifthours').value!=='10')throw Error('Selecting type discarded the visible 10-hour shift');
+    document.getElementById('cstart').value='2026-01-01';
+    document.getElementById('cend').value='2026-02-20';
+    runConstructor();
+    if(!constructorPreview||constructorPreview.shift_hours!==10||constructorPreview.days['2026-01-01'].hours!==10||constructorPreview.days['2026-01-07'].hours!==0)
+      throw Error('Actual constructor ignored selected 10-hour shift');
+    const shiftAgain=document.getElementById('cshifthours');
+    shiftAgain.value='11';shiftAgain.dispatchEvent(new Event('input',{bubbles:true}));
+    if(constructorPreview||document.querySelector('#constructorPreviewBox button[onclick="applyConstructorPreview()"]'))
+      throw Error('Changed shift left stale preview available for saving');
+    if(document.getElementById('cshifthours')!==shiftAgain)throw Error('Shift change replaced its own DOM field');
+    shiftAgain.value='10';shiftAgain.dispatchEvent(new Event('change',{bubbles:true}));
+    runConstructor();
+    if(constructorPreview?.shift_hours!==10||shiftSample.shift_hours!==11)
+      throw Error('Preview must use 10 hours without writing employee card');
+  } finally {
+    window.confirm=beforeConfirm;
+    state.data.employees=state.data.employees.filter(x=>x.id!==shiftSample.id);
+    agYear=beforeShiftYear;constructorSetTab(beforeShiftTab);
+  }
+  outcome.push({label:'ALT-07R actual WebKit shift selection survives type confirmation and redraw',ok:true,error:''});
   // Employee's legal weekly norm is independent from a work-shift length.
   if (Math.abs(employeeNormHour({week_hours:36},{norm_hours:8})-7.2)>0.0001 ||
       Math.abs(employeeNormHour({week_hours:36},{norm_hours:7})-6.2)>0.0001 ||
