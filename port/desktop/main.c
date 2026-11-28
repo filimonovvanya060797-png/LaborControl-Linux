@@ -158,10 +158,54 @@ static gboolean on_decide_navigation(WebKitWebView *web, WebKitPolicyDecision *d
     return TRUE;
 }
 
+/* Backup downloads use the same native chooser as XLSX. Never present an
+ * HTTP error page as a valid backup or report success before finished. */
+static gboolean is_portable_download(WebKitDownload *download) {
+    WebKitURIRequest *request = webkit_download_get_request(download);
+    return request != NULL && g_strcmp0(webkit_uri_request_get_uri(request),
+        APP_ORIGIN "api/backup/portable") == 0;
+}
+
+static void on_portable_failed(WebKitDownload *download, GError *error, gpointer data) {
+    (void)data;
+    g_object_set_data(G_OBJECT(download), "lc-backup-failed", GINT_TO_POINTER(1));
+    if (desktop.closing || g_object_get_data(G_OBJECT(download), "lc-backup-cancelled"))
+        return;
+    if (g_error_matches(error, WEBKIT_DOWNLOAD_ERROR, WEBKIT_DOWNLOAD_ERROR_CANCELLED_BY_USER))
+        return;
+    show_error("Не удалось сохранить резервную копию. Проверьте доступность носителя и свободное место. Если ошибка повторяется, проверьте исходную базу.");
+}
+
+static void on_portable_finished(WebKitDownload *download, gpointer data) {
+    (void)data;
+    if (desktop.closing || g_object_get_data(G_OBJECT(download), "lc-backup-failed") ||
+        g_object_get_data(G_OBJECT(download), "lc-backup-cancelled"))
+        return;
+    GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(desktop.window),
+        GTK_DIALOG_MODAL, GTK_MESSAGE_INFO, GTK_BUTTONS_NONE, "%s",
+        "Файл резервной копии сохранён. Выберите его в настройках и нажмите «Проверить копию».");
+    gtk_window_set_title(GTK_WINDOW(dialog), "Резервная копия LaborControl");
+    gtk_dialog_add_button(GTK_DIALOG(dialog), "_Закрыть", GTK_RESPONSE_CLOSE);
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+}
+
 static gboolean on_choose_download_destination(WebKitDownload *download,
                                                 gchar *suggested_filename,
                                                 gpointer user_data) {
     (void)user_data;
+    gboolean portable = is_portable_download(download);
+    if (portable) {
+        WebKitURIResponse *response = webkit_download_get_response(download);
+        const gchar *mime = response ? webkit_uri_response_get_mime_type(response) : NULL;
+        if (!response || webkit_uri_response_get_status_code(response) != 200 ||
+            g_strcmp0(mime, "application/octet-stream") != 0) {
+            g_object_set_data(G_OBJECT(download), "lc-backup-cancelled", GINT_TO_POINTER(1));
+            webkit_download_cancel(download);
+            show_error("Резервная копия не подготовлена. Убедитесь, что база содержит данные и не повреждена.");
+            return TRUE;
+        }
+    }
     GtkWidget *dialog = gtk_file_chooser_dialog_new(
         "Сохранить файл LaborControl", GTK_WINDOW(desktop.window),
         GTK_FILE_CHOOSER_ACTION_SAVE,
@@ -174,9 +218,14 @@ static gboolean on_choose_download_destination(WebKitDownload *download,
         gchar *path = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
         gchar *uri = g_filename_to_uri(path, NULL, NULL);
         if (uri != NULL) webkit_download_set_destination(download, uri);
+        else {
+            webkit_download_cancel(download);
+        }
         g_free(path);
         g_free(uri);
     } else {
+        if (portable)
+            g_object_set_data(G_OBJECT(download), "lc-backup-cancelled", GINT_TO_POINTER(1));
         webkit_download_cancel(download);
     }
     gtk_widget_destroy(dialog);
@@ -187,6 +236,10 @@ static void on_download_started(WebKitWebContext *context, WebKitDownload *downl
                                 gpointer user_data) {
     (void)context;
     (void)user_data;
+    if (is_portable_download(download)) {
+        g_signal_connect(download, "failed", G_CALLBACK(on_portable_failed), NULL);
+        g_signal_connect(download, "finished", G_CALLBACK(on_portable_finished), NULL);
+    }
     g_signal_connect(download, "decide-destination",
                      G_CALLBACK(on_choose_download_destination), NULL);
 }
