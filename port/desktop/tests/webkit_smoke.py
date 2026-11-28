@@ -278,12 +278,16 @@ SCRIPT = r"""
     const typeSelect=document.querySelector('select[onchange="constructorScheduleChanged(this.value)"]');
     typeSelect.value='Сург-Тал-Сург 7.';
     typeSelect.dispatchEvent(new Event('change',{bubbles:true}));
-    if(document.getElementById('cshifthours').value!=='10')throw Error('Selecting type discarded the visible 10-hour shift');
+    if(document.getElementById('cshifthours').value!=='10'||constructorSchedule!=='Сург-Тал-Сург 7.')throw Error('Selecting type discarded shift or type: '+JSON.stringify({shift:val('cshifthours'),type:constructorSchedule}));
+    r11DateFields.enhanceInside(document.getElementById('page'));
     document.getElementById('cstart').value='2026-01-01';
     document.getElementById('cend').value='2026-02-20';
-    runConstructor();
+    const shiftButton=document.querySelector('button[onclick="runConstructor()"]');
+    if(!shiftButton||shiftButton.disabled)throw Error('Constructor button unavailable: '+JSON.stringify({type:constructorSchedule,employee:agEmployee(),phase:scheduleObj(constructorEmp())}));
+    shiftButton.click();
     if(!constructorPreview||constructorPreview.shift_hours!==10||constructorPreview.days['2026-01-01'].hours!==10||constructorPreview.days['2026-01-07'].hours!==0)
-      throw Error('Actual constructor ignored selected 10-hour shift');
+      throw Error('Actual constructor ignored selected 10-hour shift: '+JSON.stringify({toast:document.getElementById('toast')?.textContent,form:constructorForm,shift:val('cshifthours'),type:constructorSchedule,preview:constructorPreview&&{shift:constructorPreview.shift_hours,first:constructorPreview.days['2026-01-01'],dp:constructorPreview.days['2026-01-07']}}));
+    if(employeeShiftHours({gender:'F'})!==10||employeeShiftHours({gender:'M'})!==11||employeeShiftHours({gender:'F',shift_hours:11})!==11||employeeShiftHours({gender:'M',shift_hours:10})!==10)throw Error('Default shift must preserve explicit values');
     const shiftAgain=document.getElementById('cshifthours');
     shiftAgain.value='11';shiftAgain.dispatchEvent(new Event('input',{bubbles:true}));
     if(constructorPreview||document.querySelector('#constructorPreviewBox button[onclick="applyConstructorPreview()"]'))
